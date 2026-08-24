@@ -47,8 +47,12 @@ class OptimizedUploadService {
     timeout: 300000,
     chunkSize: 5 * 1024 * 1024,
     compressImages: true,
-    maxImageWidth: 1280,
-    maxImageHeight: 720,
+    // Fix C6 (24/08/2026) : qualité d'ARCHIVAGE.
+    // Ancienne valeur 1280×720 : un scan A4 300 dpi (2480×3508) était réduit à 720p,
+    // texte illisible au zoom — inacceptable pour des courriers officiels.
+    // Le plancher retenu correspond à ~300 dpi en A4, la source n'est JAMAIS réduite en dessous.
+    maxImageWidth: 2480,
+    maxImageHeight: 3508,
     enableHeartbeat: true,
     heartbeatInterval: 15000,
   };
@@ -100,9 +104,10 @@ class OptimizedUploadService {
         canvas.height = height;
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Convertir en blob avec qualité réduite pour JPEG
-        const mimeType = file.type === 'image/png' ? 'image/jpeg' : file.type;
-        const quality = 0.72; // aggressif pour minimiser le temps de traitement PHP
+        // Fix C6 (24/08/2026) : conserver le format source (PNG reste PNG) et une
+        // qualité élevée : il s'agit de documents à ARCHIVER, pas de miniatures.
+        const mimeType = file.type;
+        const quality = 0.88;
 
         canvas.toBlob(
           (blob) => {

@@ -811,10 +811,10 @@ const EnregistrerCourrierListe: React.FC = () => {
           statut: StatutCourrier.ENREGISTRE, enregistrePar: user?.id,
           extraFields: extraFieldsCopy,
         } as any;
-        if (isInternal) {
-          const now = new Date();
-          data.numero = `INT-${now.getFullYear()}-${now.getTime()}-${Math.floor(Math.random() * 1000)}`;
-        }
+        // Sécurité C4 (fix 24/08/2026) : ne JAMAIS générer le numéro côté client.
+        // L'API Laravel génère la séquence officielle INT-AAAA-NNNN / EXT-AAAA-NNNN
+        // (verrou en base). Le numéro client `INT-AAAA-<ms>-<aleatoire>` produisait des
+        // numéros non séquentiels, collisionnels, et deux formats mélangés en base.
         return data;
       };
 
