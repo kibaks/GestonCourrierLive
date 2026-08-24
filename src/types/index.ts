@@ -148,6 +148,8 @@ export interface EntiteOrganisationnelle {
   actif?: boolean; // Si l'entité est active
   /** ID de l'utilisateur chef/responsable (ex. chef de division, chef de bureau) */
   responsableId?: string;
+  /** Rôles de l'entité dans le traitement du courrier (module Organigramme) : RECEPTION, ENREGISTREMENT, DIFFUSION, TRAITEMENT, REPONSE, SIGNATURE, EXPEDITION, ARCHIVAGE */
+  courrierRoles?: string[];
 }
 
 // Configuration des types d'entités (dénominations administratives)

@@ -86,7 +86,22 @@ class EntiteOrganisationnelleService {
       { id: '49', nom: 'Bureau Facturation Client', type: 'bureau' as const, parentId: '18', description: 'Facturation client', ordre: 1, actif: true },
       { id: '50', nom: 'Bureau Formation Interne', type: 'bureau' as const, parentId: '19', description: 'Formation interne', ordre: 1, actif: true },
     ];
-    return [...dg, ...directions, ...divisions, ...services, ...sousServices, ...bureaux];
+    return [...dg, ...directions, ...divisions, ...services, ...sousServices, ...bureaux].map((e) => {
+      const n = e.nom.toLowerCase();
+      const courrierRoles: string[] =
+        e.type === 'direction_generale' && /direction\s*g[ée]n[ée]rale/i.test(e.nom)
+          ? ['DIFFUSION', 'SIGNATURE', 'EXPEDITION']
+          : n.includes('courrier')
+            ? ['RECEPTION', 'ENREGISTREMENT', 'DIFFUSION', 'ARCHIVAGE']
+            : n.includes('archiv')
+              ? ['ARCHIVAGE']
+              : e.type === 'direction'
+                ? ['TRAITEMENT', 'REPONSE']
+                : e.type === 'direction_generale'
+                  ? []
+                  : ['TRAITEMENT'];
+      return { ...e, courrierRoles };
+    });
   }
 
   /** Initialise les données démo (structure ARMP ordonnée par type). Appelé quand aucune donnée en localStorage. */

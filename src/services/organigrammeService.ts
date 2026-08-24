@@ -33,6 +33,8 @@ export interface OrganigrammeNode {
   level: number;
   parentId?: string; // Pour les sous-fonctions personnalisées
   isCustom?: boolean; // Indique si c'est une fonction/sous-fonction ajoutée manuellement
+  /** Rôles de l'entité dans le traitement du courrier (module Organigramme) */
+  courrierRoles?: string[];
 }
 
 /** Libellé de la responsabilité selon le type d'entité (organisation) et le rôle. */
@@ -75,9 +77,9 @@ class OrganigrammeService {
   }
 
   /** Pour chaque utilisateur sans entiteId, résoudre l'entité (direction ou sous-entité par direction+service). */
-  private resolveUserEntityIds(users: Utilisateur[], entities: { id: string; parentId?: string | null; nom: string; type: string }[], racines: { id: string; nom: string }[]): Map<string, string> {
+  private resolveUserEntityIds(users: Utilisateur[], entities: { id: string; parentId?: string | null; nom: string; type: string }[], fallbackRacineId: string | null): Map<string, string> {
     const map = new Map<string, string>();
-    const firstRacineId = racines.length > 0 ? racines[0].id : null;
+    const racines = entities.filter(e => e.type === 'direction');
     for (const u of users) {
       if (u.entiteId) {
         const normalizedEntiteId = String(u.entiteId);
@@ -89,14 +91,14 @@ class OrganigrammeService {
         // entiteId set mais entité non trouvée dans les types configurés → fallback direction/service
       }
       if (!u.direction) {
-        // Sans direction : placer dans la première direction pour qu'ils apparaissent dans l'organigramme
-        if (firstRacineId) map.set(u.id, firstRacineId);
+        // Sans direction : placer au Cabinet du DG (Direction Générale) pour qu'ils apparaissent dans l'organigramme
+        if (fallbackRacineId) map.set(u.id, fallbackRacineId);
         continue;
       }
       const racine = racines.find(r => r.nom === u.direction);
       if (!racine) {
-        // Direction inconnue : placer dans la première direction pour qu'ils apparaissent
-        if (firstRacineId) map.set(u.id, firstRacineId);
+        // Direction inconnue : placer au Cabinet du DG pour qu'ils apparaissent
+        if (fallbackRacineId) map.set(u.id, fallbackRacineId);
         continue;
       }
       if (!u.service) {
@@ -141,7 +143,7 @@ class OrganigrammeService {
 
     // Créer un mapping des utilisateurs aux entités
     const racines = entities.filter(e => e.type === 'direction');
-    const userPlacedAtEntityId = this.resolveUserEntityIds(users, entities, racines);
+    const userPlacedAtEntityId = this.resolveUserEntityIds(users, entities, racines.length > 0 ? racines[0].id : null);
 
     // Logs de diagnostic pour voir ce qui est disponible
     console.log('📊 Diagnostic chef de division:', {
@@ -364,7 +366,7 @@ class OrganigrammeService {
   // Construire l'organigramme uniquement avec les entités administratives telles que configurées :
   // - Types actifs dans la configuration (EntiteTypeDefinition / entiteTypeService)
   // - Entités actives (actif !== false)
-  // - Racines = directions uniquement (sans la direction générale)
+  // - Racines = Direction Générale (ARMP) + Conseil d'Administration + directions : présentation complète
   // - Tous les utilisateurs actifs (hors SUPER_ADMIN) sont placés via entiteId ou résolution direction/service
   buildOrganigramme(): OrganigrammeNode[] {
     const configuredTypeCodes = new Set(
@@ -377,15 +379,19 @@ class OrganigrammeService {
     
     const users = adminService.getAllUsers().filter(u => u.actif && u.role !== Role.SUPER_ADMIN);
 
-    // Racines = directions uniquement (sans la direction générale)
+    // Racines = direction générale (DG + Conseil d'Administration) puis directions
     const racines = entities
-      .filter(e => e.type === 'direction')
+      .filter(e => e.type === 'direction_generale' || e.type === 'direction')
       .sort((a, b) => {
         const oA = ENTITY_TYPE_ORDER[a.type] ?? 99;
         const oB = ENTITY_TYPE_ORDER[b.type] ?? 99;
         if (oA !== oB) return oA - oB;
         return (a.ordre ?? 0) - (b.ordre ?? 0);
       });
+
+    // Repli pour les utilisateurs sans direction/service : Cabinet du DG (Direction Générale)
+    const fallbackRacineId =
+      (racines.find(r => r.type === 'direction_generale' && /direction\s*g[ée]n[ée]rale/i.test(r.nom)) ?? racines[0])?.id ?? null;
 
     // Trier les entités par ordre hiérarchique puis par nom
     const sortedEntities = [...entities].sort((a, b) => {
@@ -455,7 +461,7 @@ class OrganigrammeService {
       }
     });
 
-    const resolvedUserEntityId = this.resolveUserEntityIds(users, entities, racines);
+    const resolvedUserEntityId = this.resolveUserEntityIds(users, entities, fallbackRacineId);
     const userPlacedAtEntityId = new Map<string, string>();
     for (const [uid, eid] of resolvedUserEntityId) userPlacedAtEntityId.set(uid, eid);
 
@@ -484,10 +490,16 @@ class OrganigrammeService {
     for (const racine of racines) {
       const rootNode: OrganigrammeNode = {
         id: `dir-${racine.id}`,
-        type: 'direction',
+        type: racine.type === 'direction_generale' ? 'direction_generale' : 'direction',
         label: racine.nom,
-        data: { id: racine.id, nom: racine.nom, description: racine.description } as Direction,
+        data: {
+          id: racine.id,
+          nom: racine.nom,
+          description: racine.description,
+          responsableId: (racine as { responsableId?: string }).responsableId
+        } as Direction,
         level: 1,
+        courrierRoles: (racine as { courrierRoles?: string[] }).courrierRoles,
         children: []
       };
 
@@ -552,6 +564,7 @@ class OrganigrammeService {
             serviceId: entity.id,
             data: { id: entity.id, nom: entity.nom, directionId, description: entity.description, responsableId: entity.responsableId } as Service,
             level,
+            courrierRoles: (entity as { courrierRoles?: string[] }).courrierRoles,
             children: []
           };
 
@@ -731,6 +744,26 @@ class OrganigrammeService {
           level: 2
         });
       }
+
+      // Direction générale : DG + Directeur Général Adjoint + cabinet (utilisateurs rattachés au DG)
+      if (racine.type === 'direction_generale') {
+        const dgUsers = users
+          .filter(u => userPlacedAtEntityId.get(u.id) === racine.id || (u.entiteId && String(u.entiteId) === String(racine.id)))
+          .filter(u => u !== directeurUser && !secretaires.includes(u))
+          .slice(0, 12);
+        for (const user of dgUsers) {
+          rootNode.children!.push({
+            id: `user-${user.id}`,
+            type: 'utilisateur',
+            label: user.nom,
+            role: user.role,
+            directionId: racine.id,
+            data: user,
+            level: 2
+          });
+        }
+      }
+
       rootNodes.push(rootNode);
     }
 

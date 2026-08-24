@@ -1976,6 +1976,23 @@ class LaravelApiService {
     return list.map((item: Record<string, unknown>) => parseEntiteFromApi(item));
   }
 
+  /**
+   * Courriers d'un utilisateur — badges du module Organigramme.
+   * statut : 'enCours' | 'traite' | 'autres' (aligné sur les badges de la page Organigramme).
+   */
+  async getUserCourriers(
+    userId: string,
+    statut: 'enCours' | 'traite' | 'autres'
+  ): Promise<Array<{ id: string; objet?: string; reference?: string; numero?: string; expediteur?: string; date?: string; statut?: string }>> {
+    if (!this.baseUrl) return [];
+    const url = `${this.baseUrl}/api/users/${encodeURIComponent(userId)}/courriers?statut=${encodeURIComponent(statut)}`;
+    const res = await fetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
+    if (!res.ok) throw new Error(`API courriers utilisateur: ${res.status}`);
+    const data = await res.json();
+    const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+    return list as Array<{ id: string; objet?: string; reference?: string; numero?: string; expediteur?: string; date?: string; statut?: string }>;
+  }
+
   async createEntiteOrganisationnelle(body: Omit<EntiteOrganisationnelle, 'id'>): Promise<EntiteOrganisationnelle> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const payload: Record<string, unknown> = {
@@ -2125,6 +2142,8 @@ function parseEntiteFromApi(raw: Record<string, unknown>): EntiteOrganisationnel
   out.parentId = rawParentId != null && rawParentId !== '' ? String(rawParentId) : undefined;
   const rawResponsableId = r.responsableId ?? r.responsable_id;
   out.responsableId = rawResponsableId != null && rawResponsableId !== '' ? String(rawResponsableId) : undefined;
+  const rawCourrierRoles = r.courrierRoles ?? r.courrier_roles;
+  out.courrierRoles = Array.isArray(rawCourrierRoles) ? (rawCourrierRoles as string[]) : undefined;
   return out as unknown as EntiteOrganisationnelle;
 }
 

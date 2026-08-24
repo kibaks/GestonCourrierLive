@@ -61,7 +61,16 @@ import {
   faFilter,
   faTasks,
   faCheckCircle,
-  faInbox
+  faInbox,
+  faLandmark,
+  faEnvelope,
+  faEnvelopeOpenText,
+  faPenToSquare,
+  faShareNodes,
+  faGears,
+  faSignature,
+  faPaperPlane,
+  faBoxArchive
 } from '@fortawesome/free-solid-svg-icons';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -103,6 +112,7 @@ interface HistoryEntry {
 
 // Couleurs par type de nœud (charte bleu, pas de violet)
 const nodeColors: Record<string, { bg: string; border: string; text: string; accent: string }> = {
+  'direction_generale': { bg: 'from-slate-800 to-slate-900', border: 'border-slate-400', text: 'text-white', accent: 'bg-slate-500' },
   'direction': { bg: 'from-blue-500 to-blue-600', border: 'border-blue-300', text: 'text-white', accent: 'bg-blue-400' },
   'service': { bg: 'from-emerald-500 to-emerald-600', border: 'border-emerald-300', text: 'text-white', accent: 'bg-emerald-400' },
   'utilisateur': { bg: 'from-primary-500 to-primary-600', border: 'border-primary-300', text: 'text-white', accent: 'bg-primary-400' },
@@ -111,6 +121,7 @@ const nodeColors: Record<string, { bg: string; border: string; text: string; acc
 };
 
 const STATS_TYPE_ICONS: Record<string, { icon: typeof faBuilding; bg: string; text: string }> = {
+  direction_generale: { icon: faLandmark, bg: 'bg-slate-100 group-hover:bg-slate-200', text: 'text-slate-800' },
   direction: { icon: faBuilding, bg: 'bg-blue-50 group-hover:bg-blue-100', text: 'text-blue-700' },
   division: { icon: faLayerGroup, bg: 'bg-amber-50 group-hover:bg-amber-100', text: 'text-amber-700' },
   service: { icon: faUsers, bg: 'bg-emerald-50 group-hover:bg-emerald-100', text: 'text-emerald-700' },
@@ -121,6 +132,46 @@ const STATS_TYPE_ICONS: Record<string, { icon: typeof faBuilding; bg: string; te
 
 function getStatsIconAndColor(code: string): { icon: typeof faBuilding; bg: string; text: string } {
   return STATS_TYPE_ICONS[code] ?? { icon: faSitemap, bg: 'bg-slate-50 group-hover:bg-slate-100', text: 'text-slate-700' };
+}
+
+// ---------------------------------------------------------------------------
+// Traitement du courrier — étapes du flux et rôles de chaque unité
+// (données : colonne courrier_roles des entités organisationnelles, ARMP)
+// ---------------------------------------------------------------------------
+export interface CourrierStep {
+  code: string;
+  label: string;
+  icon: typeof faBuilding;
+  /** Codes courrierRoles considérés comme concernés par cette étape */
+  matches: string[];
+}
+
+export const COURRIER_STEPS: CourrierStep[] = [
+  { code: 'RECEPTION', label: 'Réception', icon: faEnvelopeOpenText, matches: ['RECEPTION'] },
+  { code: 'ENREGISTREMENT', label: 'Enregistrement', icon: faPenToSquare, matches: ['ENREGISTREMENT'] },
+  { code: 'DIFFUSION', label: 'Diffusion', icon: faShareNodes, matches: ['DIFFUSION'] },
+  { code: 'TRAITEMENT', label: 'Traitement', icon: faGears, matches: ['TRAITEMENT'] },
+  { code: 'REPONSE', label: 'Réponse & Signature', icon: faSignature, matches: ['REPONSE', 'SIGNATURE'] },
+  { code: 'EXPEDITION', label: 'Expédition', icon: faPaperPlane, matches: ['EXPEDITION'] },
+  { code: 'ARCHIVAGE', label: 'Archivage', icon: faBoxArchive, matches: ['ARCHIVAGE'] },
+];
+
+/** Rôles courrier d'un nœud (données API, sinon repli par type/nom — mode démo). */
+export function nodeCourrierRoles(node: OrganigrammeNode): string[] {
+  if (Array.isArray(node.courrierRoles) && node.courrierRoles.length > 0) return node.courrierRoles;
+  const dataRoles = (node.data as { courrierRoles?: string[] } | undefined)?.courrierRoles;
+  if (Array.isArray(dataRoles) && dataRoles.length > 0) return dataRoles;
+  const label = (node.label || '').toLowerCase();
+  if (node.type === 'direction_generale') {
+    return /direction\s*g[ée]n[ée]rale/i.test(label) ? ['DIFFUSION', 'SIGNATURE', 'EXPEDITION'] : [];
+  }
+  if (label.includes('courrier')) return ['RECEPTION', 'ENREGISTREMENT', 'DIFFUSION', 'ARCHIVAGE'];
+  if (label.includes('archiv')) return ['ARCHIVAGE'];
+  if (node.type === 'direction') return ['TRAITEMENT', 'REPONSE'];
+  if (node.type === 'division' || node.type === 'service' || node.type === 'sous-service' || node.type === 'bureau') {
+    return ['TRAITEMENT'];
+  }
+  return [];
 }
 
 const Organigramme: React.FC = () => {
@@ -173,6 +224,9 @@ const Organigramme: React.FC = () => {
   const [showPDFPreview, setShowPDFPreview] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [generatingPreview, setGeneratingPreview] = useState(false);
+
+  // Traitement du courrier : étape active du flux (surbrillance des unités concernées)
+  const [activeCourrierStep, setActiveCourrierStep] = useState<string | null>(null);
 
 
   // Filtres organigramme dynamiques : comme dans la liste des courriers, recalculés à chaque rendu (types actifs uniquement)
@@ -289,6 +343,28 @@ const Organigramme: React.FC = () => {
     // L'entité sélectionnée est la racine, avec tous ses descendants
     return [root];
   }, [organigramme, filterLevels, filterSelectionIds, hasFilter]);
+
+  // Traitement du courrier : étape active du flux + IDs des unités concernées (surbrillance)
+  const courrierStepActive = useMemo(
+    () => COURRIER_STEPS.find((s) => s.code === activeCourrierStep) ?? null,
+    [activeCourrierStep]
+  );
+
+  const highlightedNodeIds = useMemo(() => {
+    if (!courrierStepActive) return null;
+    const set = new Set<string>();
+    const walk = (nodes: OrganigrammeNode[]) => {
+      for (const n of nodes) {
+        if (n.type !== 'utilisateur' && n.type !== 'fonction' && n.type !== 'sous-fonction') {
+          const roles = nodeCourrierRoles(n);
+          if (roles.some((r) => courrierStepActive.matches.includes(r))) set.add(n.id);
+        }
+        if (n.children) walk(n.children);
+      }
+    };
+    walk(filteredOrganigramme);
+    return set;
+  }, [courrierStepActive, filteredOrganigramme]);
 
   // Stats basées sur les types d'entités actifs + nombre d'agents et de chefs de division
   const stats = useMemo(() => {
@@ -600,11 +676,12 @@ const Organigramme: React.FC = () => {
       const children = node.children?.filter(c => c.type !== 'utilisateur') || [];
       const users = node.children?.filter(c => c.type === 'utilisateur') || [];
       const responsableId = (node.data as { responsableId?: string })?.responsableId;
-      const hasChefInBlock = node.type === 'direction' || node.type === 'service' ||
+      const hasChefInBlock = node.type === 'direction' || node.type === 'direction_generale' || node.type === 'service' ||
         (['division', 'sous-service', 'bureau', 'cellule'].includes(node.type) && !!responsableId);
       const usersInBlock = hasChefInBlock
         ? users.filter(u => {
             if (node.type === 'direction') return u.role === Role.DIRECTEUR;
+            if (node.type === 'direction_generale') return u.role === Role.DIRECTEUR_GENERAL;
             if (node.type === 'service') return u.role === Role.CHEF_SERVICE;
             if (responsableId) {
               const uid = u.id.startsWith('user-') ? u.id.slice(5) : (u.data as { id?: string })?.id;
@@ -906,25 +983,12 @@ const Organigramme: React.FC = () => {
     setLoadingCourriers(true);
     setSelectedUserForCourriers(userId);
     setSelectedStatType(statType);
-    
+
     try {
-      // Récupérer les courriers depuis l'API
-      const response = await fetch(`/api/users/${userId}/courriers?statut=${statType}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.ok) {
-        const courriers = await response.json();
-        setUserCourriers(courriers);
-        setShowCourriersModal(true);
-      } else {
-        console.error('Erreur lors du chargement des courriers:', response.statusText);
-        setUserCourriers([]);
-        setShowCourriersModal(true);
-      }
+      // Récupérer les courriers depuis l'API Laravel (GET /api/users/{id}/courriers?statut=)
+      const courriers = await laravelApiService.getUserCourriers(userId, statType);
+      setUserCourriers(courriers);
+      setShowCourriersModal(true);
     } catch (error) {
       console.error('Erreur lors du chargement des courriers:', error);
       setUserCourriers([]);
@@ -1576,9 +1640,12 @@ const Organigramme: React.FC = () => {
     const colors = nodeColors[node.type] || nodeColors['fonction'];
     const hasChildren = node.children && node.children.length > 0;
     const matchesSearch = searchQuery.trim().length > 0 && node.label.toLowerCase().includes(searchQuery.toLowerCase());
+    // Surbrillance flux « Traitement du courrier » (uniquement les unités, pas les utilisateurs)
+    const isStepHighlighted = highlightedNodeIds !== null && node.type !== 'utilisateur' && highlightedNodeIds.has(node.id);
+    const isStepDimmed = highlightedNodeIds !== null && node.type !== 'utilisateur' && !highlightedNodeIds.has(node.id);
     
     const responsableId = (node.data as { responsableId?: string })?.responsableId;
-    const hasChefInBlock = node.type === 'direction' || node.type === 'service' ||
+    const hasChefInBlock = node.type === 'direction' || node.type === 'direction_generale' || node.type === 'service' ||
       (['division', 'sous-service', 'bureau', 'cellule'].includes(node.type) && !!responsableId);
     // Enfants visibles : ne pas rendre en dessous le responsable (il est dans le bloc)
     const visibleChildren = isCollapsed
@@ -1587,6 +1654,7 @@ const Organigramme: React.FC = () => {
         ? (node.children || []).filter(c => {
             if (c.type !== 'utilisateur') return true;
             if (node.type === 'direction') return c.role !== Role.DIRECTEUR;
+            if (node.type === 'direction_generale') return c.role !== Role.DIRECTEUR_GENERAL;
             if (node.type === 'service') return c.role !== Role.CHEF_SERVICE;
             if (responsableId) {
               const uid = c.id.startsWith('user-') ? c.id.slice(5) : (c.data as { id?: string })?.id;
@@ -1601,6 +1669,7 @@ const Organigramme: React.FC = () => {
           .filter((c): c is OrganigrammeNode => c.type === 'utilisateur')
           .filter(u => {
             if (node.type === 'direction') return u.role === Role.DIRECTEUR;
+            if (node.type === 'direction_generale') return u.role === Role.DIRECTEUR_GENERAL;
             if (node.type === 'service') return u.role === Role.CHEF_SERVICE;
             if (responsableId) {
               const uid = u.id.startsWith('user-') ? u.id.slice(5) : (u.data as { id?: string })?.id;
@@ -1622,7 +1691,7 @@ const Organigramme: React.FC = () => {
               : matchesSearch
                 ? 'ring-2 ring-amber-400/80 ring-offset-2 ring-offset-slate-50'
                 : ''
-          }`}
+          } ${isStepDimmed ? 'opacity-30' : ''} ${isStepHighlighted ? 'ring-4 ring-amber-400/80 ring-offset-1 ring-offset-slate-50' : ''}`}
           style={{
             left: Math.max(0, (pos.x || 0) || 0),
             top: Math.max(0, (pos.y || 0) || 0),
@@ -1735,6 +1804,7 @@ const Organigramme: React.FC = () => {
                   <div className="w-11 h-11 rounded-xl bg-white/25 flex items-center justify-center flex-shrink-0 shadow-inner">
                     <FontAwesomeIcon
                       icon={
+                        node.type === 'direction_generale' ? faLandmark :
                         node.type === 'direction' ? faBuilding :
                         node.type === 'division' ? faLayerGroup :
                         node.type === 'service' ? faFolder :
@@ -1765,6 +1835,9 @@ const Organigramme: React.FC = () => {
                     ) : (
                       <>
                         <p className="font-semibold text-sm truncate">{node.label}</p>
+                        {node.type === 'direction_generale' && (node.data as { description?: string } | undefined)?.description && (
+                          <p className="text-[10px] leading-tight text-white/70 truncate">{(node.data as { description?: string }).description}</p>
+                        )}
                         {(node.role || node.parentEntityType) && (
                           <p className="text-xs text-white/80 truncate flex items-center gap-1">
                             <FontAwesomeIcon icon={faCrown} className="flex-shrink-0 text-[10px]" />
@@ -1795,7 +1868,9 @@ const Organigramme: React.FC = () => {
                   const respStats = respUserId ? userDossierStats.get(respUserId) : undefined;
                   const hasRespStats = respStats && (respStats.enCours > 0 || respStats.traite > 0 || respStats.autres > 0);
                   const chefLabel =
-                    node.type === 'direction'
+                    node.type === 'direction_generale'
+                      ? 'Directeur général'
+                      : node.type === 'direction'
                       ? 'Directeur'
                       : node.type === 'division'
                       ? 'Chef de division'
@@ -1879,6 +1954,39 @@ const Organigramme: React.FC = () => {
                           )}
                         </div>
                       )}
+                    </div>
+                  );
+                })()}
+                {/* Rôles dans le traitement du courrier (cliquable = surbrillance des unités concernées) */}
+                {!isCollapsed && (() => {
+                  const roles = nodeCourrierRoles(node);
+                  if (roles.length === 0) return null;
+                  const steps = [...new Set(
+                    roles
+                      .map((r) => COURRIER_STEPS.find((s) => s.matches.includes(r))?.code)
+                      .filter((c): c is string => Boolean(c))
+                  )];
+                  return (
+                    <div className="flex flex-wrap items-center gap-1 pt-1.5 mt-0.5 border-t border-white/25">
+                      {steps.map((code) => {
+                        const step = COURRIER_STEPS.find((s) => s.code === code)!;
+                        const isActive = activeCourrierStep === step.code;
+                        return (
+                          <button
+                            key={step.code}
+                            onClick={(e) => { e.stopPropagation(); setActiveCourrierStep((cur) => (cur === step.code ? null : step.code)); }}
+                            title={`Étape « ${step.label} » — cliquer pour localiser les unités concernées`}
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium border transition-colors ${
+                              isActive
+                                ? 'bg-amber-400 text-slate-900 border-amber-300'
+                                : 'bg-white/15 text-white/95 border-white/30 hover:bg-white/30'
+                            }`}
+                          >
+                            <FontAwesomeIcon icon={step.icon} className="text-[8px]" />
+                            {step.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   );
                 })()}
@@ -2010,8 +2118,72 @@ const Organigramme: React.FC = () => {
       ref={containerRef}
       className={`flex h-[calc(100vh-4rem)] max-h-[900px] w-full max-w-[1800px] mx-auto rounded-2xl overflow-hidden shadow-xl border border-slate-200/80 bg-slate-50/95 ${isFullscreen ? 'fixed inset-0 z-50 h-screen max-h-screen w-screen rounded-none border-0 shadow-none' : ''}`}
     >
-      {/* Zone principale : barre horizontale + canvas */}
+      {/* Zone principale : bandeau ARMP + flux courrier + barre + canvas */}
       <div className="flex-1 flex flex-col overflow-hidden w-full min-w-0">
+        {/* Bandeau organisation : ARMP */}
+        <div className="flex items-center justify-between gap-4 px-5 py-3 bg-gradient-to-r from-blue-950 via-blue-900 to-blue-800 text-white flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-white/15 border border-white/25 flex items-center justify-center flex-shrink-0 shadow-inner">
+              <FontAwesomeIcon icon={faLandmark} className="text-white text-lg" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-sm sm:text-base leading-tight truncate">ARMP — Autorité de Régulation des Marchés Publics</p>
+              <p className="text-[11px] text-blue-100/90 truncate">
+                République Démocratique du Congo · Siège social : Kinshasa · Loi n°10/010 du 27/04/2010 · Décret n°10/21 du 02/06/2010
+              </p>
+            </div>
+          </div>
+          <span className="hidden md:inline-flex items-center gap-2 text-[11px] font-semibold bg-white/15 border border-white/25 rounded-full px-3 py-1 flex-shrink-0">
+            <FontAwesomeIcon icon={faSitemap} className="text-[10px]" />
+            SIGC · Gestion des courriers
+          </span>
+        </div>
+
+        {/* Bandeau Traitement du courrier : flux de bout en bout (cliquable = surbrillance) */}
+        <div className="px-5 py-2.5 bg-white border-b border-slate-200/80 flex-shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wide mr-1 flex-shrink-0">
+              <FontAwesomeIcon icon={faEnvelope} className="text-blue-600" />
+              Traitement du courrier
+            </span>
+            {COURRIER_STEPS.map((step, i) => {
+              const isActive = activeCourrierStep === step.code;
+              return (
+                <React.Fragment key={step.code}>
+                  {i > 0 && <FontAwesomeIcon icon={faChevronRight} className="text-slate-300 text-[10px] flex-shrink-0" />}
+                  <button
+                    onClick={() => setActiveCourrierStep((cur) => (cur === step.code ? null : step.code))}
+                    title={isActive ? 'Effacer la surbrillance' : `Localiser les unités en charge de : ${step.label}`}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all flex-shrink-0 ${
+                      isActive
+                        ? 'bg-amber-400 border-amber-400 text-slate-900 shadow-md'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-700'
+                    }`}
+                  >
+                    <FontAwesomeIcon icon={step.icon} className="text-[11px]" />
+                    {step.label}
+                  </button>
+                </React.Fragment>
+              );
+            })}
+            {highlightedNodeIds && (
+              <span className="flex items-center gap-2 ml-1 flex-shrink-0">
+                <span className="text-xs text-slate-500">
+                  {highlightedNodeIds.size} unité{highlightedNodeIds.size > 1 ? 's' : ''} en charge
+                </span>
+                <button onClick={() => setActiveCourrierStep(null)} className="text-xs font-semibold text-blue-600 hover:underline">
+                  Effacer
+                </button>
+              </span>
+            )}
+            {!courrierStepActive && (
+              <span className="text-[11px] text-slate-400 ml-1 hidden xl:inline flex-shrink-0">
+                Cliquez sur une étape pour localiser les unités concernées
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Barre : filtres + recherche sur une ligne, stats, outils */}
         <div className="px-5 py-4 bg-white border-b border-slate-200/80 flex flex-col gap-4 flex-shrink-0">
           {/* Ligne 1 : Filtres (drawer) + Recherche sur la même ligne */}
