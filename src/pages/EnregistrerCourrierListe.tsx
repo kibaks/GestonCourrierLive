@@ -810,6 +810,9 @@ const EnregistrerCourrierListe: React.FC = () => {
           service: r.service || undefined, priorite: resolvedPriorite,
           statut: StatutCourrier.ENREGISTRE, enregistrePar: user?.id,
           extraFields: extraFieldsCopy,
+          // (C3) Idempotence : l'API utilise cet UUID pour détecter les
+          // re-soumissions et renvoyer le courrier existant au lieu d'un doublon.
+          clientRequestId: requestIdByRow[r.id],
         } as any;
         // Sécurité C4 (fix 24/08/2026) : ne JAMAIS générer le numéro côté client.
         // L'API Laravel génère la séquence officielle INT-AAAA-NNNN / EXT-AAAA-NNNN
@@ -864,6 +867,19 @@ const EnregistrerCourrierListe: React.FC = () => {
             .catch((err) => console.warn('[Catégorie] Mapping API échoué (non bloquant):', err));
         }
       };
+
+      // (C3) Idempotence anti-doublons : un identifiant de requête UNIQUE PAR
+      // LIGNE, généré UNE SEULE FOIS et partagé entre la tentative bulk et le
+      // fallback séquentiel. Si le bulk échoue côté réseau APRÈS un succès
+      // serveur (timeout), si le fallback relance une ligne déjà créée, ou si
+      // l'utilisateur relance l'enregistrement, l'API renvoie le courrier déjà
+      // créé (même id) au lieu d'en créer un deuxième.
+      const genRequestId = (): string =>
+        (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+          ? crypto.randomUUID()
+          : `cl-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+      const requestIdByRow: Record<string, string> = {};
+      pendingRows.forEach(r => { requestIdByRow[r.id] = genRequestId(); });
 
       // Créer un courrier + uploader ses fichiers, puis mettre à jour le statut (fallback séquentiel)
       const saveSingleLaravel = async (r: RowData): Promise<Courrier | null> => {

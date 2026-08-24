@@ -1153,7 +1153,13 @@ const EnregistrerCourrier: React.FC = () => {
           extraFields: extraFieldsResolved,
           priorite: resolvedPriorite,
           createdAt: new Date().toISOString(),
-          enregistrePar: user?.id || 'system'
+          enregistrePar: user?.id || 'system',
+          // (C3) Idempotence anti-doublons : un UUID unique par soumission.
+          // En cas de double clic / re-soumission (retry 401, timeout réseau),
+          // l'API renvoie le courrier déjà créé au lieu d'en créer un deuxième.
+          clientRequestId: (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+            ? crypto.randomUUID()
+            : `cl-${Date.now()}-${Math.floor(Math.random() * 1e9)}`,
         };
         
         const createdCourrier = await courrierService.createCourrier(courrierData);

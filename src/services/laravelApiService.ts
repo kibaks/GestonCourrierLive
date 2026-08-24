@@ -90,6 +90,51 @@ const buildHeaders = (): HeadersInit => {
   return headers;
 };
 
+// ————— (M5) Rafraîchissement silencieux du token expiré —————
+// Le JWT expire au bout de 60 min. Avant ce fix, toute requête avec un token
+// expiré renvoyait 401 et forçait la reconnexion de l'utilisateur. L'API
+// (fix backend 24/08/2026) accepte le refresh d'un token expiré depuis moins
+// de 7 jours : on appelle /api/auth/refresh avec l'ancien token et on stocke
+// le nouveau (clé laravel_token, relue automatiquement par buildHeaders()).
+let refreshInFlight: Promise<string | null> | null = null;
+
+export const refreshAuthToken = async (): Promise<string | null> => {
+  const base = getBaseUrl();
+  if (!base) return null;
+  const current = getAuthToken();
+  if (!current) return null;
+
+  // Déduplication : une seule requête refresh à la fois, partagée par tous
+  // les appels 401 concurrents.
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${base}/api/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${current}`,
+          Accept: 'application/json',
+        },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const token = data?.token ?? data?.data?.token;
+      if (!token || typeof token !== 'string') return null;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('laravel_token', token);
+      }
+      return token;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
+};
+
 /** Parser la réponse d'erreur Laravel pour afficher un message clair (401, 422, 500). */
 function parseApiErrorMessage(status: number, bodyText: string): string {
   if (status === 401) {
@@ -345,6 +390,13 @@ class LaravelApiService {
       let res: Response;
       try {
         res = await fetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store', signal: controller.signal });
+        // (M5) Token expiré : refresh silencieux + une seule retry
+        if (res.status === 401) {
+          const newToken = await refreshAuthToken();
+          if (newToken) {
+            res = await fetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store', signal: controller.signal });
+          }
+        }
       } finally {
         clearTimeout(timeoutId);
       }
@@ -365,7 +417,12 @@ class LaravelApiService {
     if (!this.baseUrl) return null;
     try {
       const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(id)}`;
-      const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+      let res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+      // (M5) Token expiré : refresh silencieux + une seule retry
+      if (res.status === 401) {
+        const newToken = await refreshAuthToken();
+        if (newToken) res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+      }
       if (!res.ok) return null;
       const data = await res.json();
       const raw = data?.data ?? data;
@@ -385,12 +442,27 @@ class LaravelApiService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000); // Timeout 30s
 
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+
+    // (M5) Token expiré : refresh silencieux + une seule retry.
+    // Sans risque de doublon : l'ID de requête clientRequestId (C3) rend
+    // la création idempotente côté API.
+    if (res.status === 401) {
+      const newToken = await refreshAuthToken();
+      if (newToken) {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: buildHeaders(),
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      }
+    }
 
     clearTimeout(timeout);
 
@@ -414,11 +486,23 @@ class LaravelApiService {
     if (!this.baseUrl) throw new Error('API Laravel non configurée (VITE_LARAVEL_API_URL)');
     const url = `${this.baseUrl}/api/courriers/bulk`;
     const body = { courriers: courriers.map((c) => prepareCourrierForApi(c as Partial<Courrier>)) };
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(body),
     });
+    // (M5) Token expiré : refresh silencieux + une seule retry.
+    // Sans risque de doublon : idempotence par clientRequestId (C3).
+    if (res.status === 401) {
+      const newToken = await refreshAuthToken();
+      if (newToken) {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: buildHeaders(),
+          body: JSON.stringify(body),
+        });
+      }
+    }
     if (!res.ok) {
       const text = await res.text();
       const msg = parseApiErrorMessage(res.status, text);
@@ -440,12 +524,25 @@ class LaravelApiService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000); // Timeout 30s
 
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+
+    // (M5) Token expiré : refresh silencieux + une seule retry
+    if (res.status === 401) {
+      const newToken = await refreshAuthToken();
+      if (newToken) {
+        res = await fetch(url, {
+          method: 'PUT',
+          headers: buildHeaders(),
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      }
+    }
 
     clearTimeout(timeout);
 
