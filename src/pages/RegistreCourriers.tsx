@@ -67,7 +67,7 @@ export default function RegistreCourriers() {
     setLoading(true);
     try {
       // Utiliser getAccessibleCourriers pour respecter les permissions par rôle (comme dans ListeCourriers)
-      const accessibleCourriers = await courrierService.getAccessibleCourriers(user);
+      const accessibleCourriers = await courrierService.getAccessibleCourriers(user?.id || '', user || undefined);
       const filtered = accessibleCourriers.filter((c: Courrier) => {
         const date = new Date(c.dateReception);
         const from = new Date(config.dateFrom);
