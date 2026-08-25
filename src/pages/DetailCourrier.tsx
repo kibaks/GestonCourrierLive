@@ -172,6 +172,12 @@ function getAgentEntiteLabel(u: Utilisateur): string | null {
   return null;
 }
 
+// ——— AR : idempotence au niveau session (module) ———
+// Mémo des courriers pour lesquels un AR a été généré OU détecté durant la session.
+// Empêche la régénération en boucle quand le composant est remonté (navigation
+// aller/retour) avant que la détection des fichiers ne « rattrape » l'état.
+const accuseGenSessionCache = new Set<string>();
+
 const DetailCourrier: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -212,6 +218,8 @@ const DetailCourrier: React.FC = () => {
   const [drawerSearch, setDrawerSearch] = useState('');
   const [extraFieldsConfig, setExtraFieldsConfig] = useState<any>(null);
   const [accuseGeneratedInSession, setAccuseGeneratedInSession] = useState(false);
+  // Verrou anti-course : une seule génération d'AR à la fois pour ce courrier
+  const accuseGenInFlight = React.useRef(false);
   const [isCourrierOrientedToDG, setIsCourrierOrientedToDG] = useState(false);
   const [isCourrierOrientedToDirector, setIsCourrierOrientedToDirector] = useState(false);
   const [showInlineAnnotation, setShowInlineAnnotation] = useState(false);
@@ -1514,12 +1522,12 @@ const DetailCourrier: React.FC = () => {
   };
 
   // Fonction pour générer un accusé à partir des fichiers chargés
-  const generateAccuseFromMainDocument = async (): Promise<void> => {
+  const generateAccuseFromMainDocument = async (dossierAccusesIdOverride?: string): Promise<void> => {
     if (!id || !user || !courrier) return;
     
     try {
       // Créer le dossier "Accusés de réception" si nécessaire
-      let parentId: string | undefined = currentDossierAccusesId;
+      let parentId: string | undefined = dossierAccusesIdOverride ?? currentDossierAccusesId;
       if (!parentId) {
         const newDossier = await categorieFichierService.createCategorie(id, 'Accusés de réception', undefined, user.id);
         parentId = newDossier.id;
@@ -1616,6 +1624,7 @@ const DetailCourrier: React.FC = () => {
     return dossiersFichiers.some(item => 
       item.type === 'fichier' && 
       !item.estAccuseReception && 
+      !item.nom.startsWith('AR_') &&
       !item.nom.startsWith('annoté_') &&
       !item.nom.startsWith('traité_') &&
       !item.nom.startsWith('final_')
@@ -1627,6 +1636,7 @@ const DetailCourrier: React.FC = () => {
     const mainFiles = dossiersFichiers.filter(item => 
       item.type === 'fichier' && 
       !item.estAccuseReception && 
+      !item.nom.startsWith('AR_') &&
       !item.nom.startsWith('annoté_') &&
       !item.nom.startsWith('traité_') &&
       !item.nom.startsWith('final_')
@@ -1673,8 +1683,10 @@ const DetailCourrier: React.FC = () => {
   const currentDossierAccusesId = dossiersFichiers.find(
     d => d.type === 'categorie' && d.nom === 'Accusés de réception'
   )?.id;
+  // NB : détection renforcée par la convention de nommage AR_*.pdf — les AR « orphelins »
+  // (flag perdu ou hors dossier) sont reconnus et ne déclenchent plus de régénération.
   const currentAccusésDeReception = dossiersFichiers.filter(
-    d => d.type === 'fichier' && (d.estAccuseReception === true || d.parentId === currentDossierAccusesId)
+    d => d.type === 'fichier' && (d.estAccuseReception === true || d.nom.startsWith('AR_') || d.parentId === currentDossierAccusesId)
   );
 
   const accuseFileInputRef = React.useRef<HTMLInputElement>(null);
@@ -1735,9 +1747,18 @@ const DetailCourrier: React.FC = () => {
   };
 
   // Génération automatique d'un accusé de réception quand le DESTINATAIRE ouvre le courrier
+  // ——— Idempotence (fix boucle de régénération AR) ———
+  //  1) accuseGenInFlight       : verrou, une seule génération à la fois (anti course de chargement)
+  //  2) accuseGenSessionCache   : mémo session, courrier déjà AR (généré ou détecté) = plus rien
+  //  3) re-vérification fraîche : liste des fichiers re-chargée juste avant génération
+  //     (AR créé entre-temps par un autre onglet/utilisateur → annulation)
+  //  4) détection par convention AR_*.pdf : les AR orphelins (flag perdu) sont reconnus
   useEffect(() => {
     const autoGenerateAccuse = async () => {
       if (!courrier || !user || !id) return;
+
+      // Verrou anti-course : ne jamais lancer deux générations en parallèle
+      if (accuseGenInFlight.current) return;
 
       // Règle métier : les accusés de réception ne concernent QUE les courriers internes
       // (communication entre la Direction Générale et les directions spécifiques).
@@ -1745,7 +1766,12 @@ const DetailCourrier: React.FC = () => {
       if (courrier.type !== TypeCourrier.INTERNE) return;
 
       // Ne rien faire si un accusé existe déjà OU si déjà généré dans cette session
-      if (currentAccusésDeReception.length > 0 || accuseGeneratedInSession) return;
+      if (currentAccusésDeReception.length > 0 || accuseGeneratedInSession) {
+        accuseGenSessionCache.add(id);
+        return;
+      }
+      // Déjà AR cette session (composant remonté après navigation) → rien à faire
+      if (accuseGenSessionCache.has(id)) return;
 
       // Seul le destinataire (ou DG) déclenche l'AR
       if (!isCurrentUserDestinataire()) return;
@@ -1753,13 +1779,35 @@ const DetailCourrier: React.FC = () => {
       // Vérifier si un fichier principal est chargé/scanné
       if (!hasMainDocument()) return;
 
+      accuseGenInFlight.current = true;
       try {
-        await generateAccuseFromMainDocument();
+        // Idempotence : re-vérifier avec une liste FRAÎCHE avant de générer
+        let dossierARIdFrais: string | undefined;
+        try {
+          const fresh = await categorieFichierService.getCategoriesFichiersByCourrier(id);
+          setDossiersFichiers(fresh);
+          dossierARIdFrais = fresh.find(d => d.type === 'categorie' && d.nom === 'Accusés de réception')?.id;
+          const arExistsFresh = fresh.some(f =>
+            f.type === 'fichier' &&
+            (f.estAccuseReception === true || f.nom.startsWith('AR_') || f.parentId === dossierARIdFrais)
+          );
+          if (arExistsFresh) {
+            accuseGenSessionCache.add(id);
+            return;
+          }
+        } catch (e) {
+          console.warn('[AR] Re-vérification fraîche impossible, génération locale continue:', e);
+        }
+
+        await generateAccuseFromMainDocument(dossierARIdFrais);
         await loadDossiersFichiers(id);
+        accuseGenSessionCache.add(id);
         showAlert('Accusé de réception généré avec succès.', 'success');
       } catch (err: any) {
         console.error('Erreur auto accusé de réception:', err);
         showAlert('Erreur lors de la génération de l\'accusé de réception.', 'error');
+      } finally {
+        accuseGenInFlight.current = false;
       }
     };
 
@@ -1892,7 +1940,7 @@ const DetailCourrier: React.FC = () => {
         );
       } else {
         // C'est un fichier
-        const isAccuse = item.estAccuseReception === true || item.parentId === currentDossierAccusesId;
+        const isAccuse = item.estAccuseReception === true || item.nom.startsWith('AR_') || item.parentId === currentDossierAccusesId;
         return (
           <div key={item.id} className="py-0.5 group" style={{ paddingLeft: `${currentLevel * 24}px` }}>
             <div className="flex items-center gap-2 text-sm hover:bg-slate-100/80 p-2 rounded-lg transition-colors">
@@ -2537,6 +2585,7 @@ const DetailCourrier: React.FC = () => {
                   (item) =>
                     item.type === 'fichier' &&
                     item.estAccuseReception !== true &&
+                    !item.nom.startsWith('AR_') &&
                     item.id !== currentDossierAccusesId
                 );
                 if (!hasMainDocument) {
