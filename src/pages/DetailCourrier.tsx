@@ -606,7 +606,7 @@ const DetailCourrier: React.FC = () => {
     if (!courrierData && laravelApiService.isConfigured()) {
       try {
         console.log('[DetailCourrier] Tentative chargement individuel du courrier:', id);
-        courrierData = await laravelApiService.getCourrierById(id);
+        courrierData = (await laravelApiService.getCourrierById(id)) ?? undefined;
       } catch (e) {
         console.error('[DetailCourrier] Erreur chargement individuel:', e);
       }
