@@ -1318,7 +1318,22 @@ class LaravelApiService {
     return list.map((item: Record<string, unknown>) => parseAnnotationFromApi(item));
   }
 
-  async createAnnotation(body: { courrierId: string; contenu: string; type: 'MINUTE' | 'NOTE' | 'COMMENTAIRE'; auteur?: string; workflowEtapeId?: string; fichiers?: string[] }): Promise<Annotation> {
+  async createAnnotation(body: {
+    courrierId: string;
+    contenu: string;
+    type: 'MINUTE' | 'NOTE' | 'COMMENTAIRE';
+    auteur?: string;
+    workflowEtapeId?: string;
+    fichiers?: string[];
+    // P1 — annotations sur le document
+    fichierId?: string;
+    fichierNom?: string;
+    page?: number;
+    position?: { x: number; y: number; w: number; h: number };
+    kind?: 'COMMENTAIRE' | 'TRACE' | 'TEXTE' | 'TAMPOUR' | 'SIGNATURE';
+    parentId?: string;
+    decision?: 'FAVORABLE' | 'A_REVOIR' | 'INFO';
+  }): Promise<Annotation> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const res = await fetch(`${this.baseUrl}/api/annotations`, {
       method: 'POST',
@@ -1329,6 +1344,14 @@ class LaravelApiService {
         type: body.type,
         workflowEtapeId: body.workflowEtapeId ?? undefined,
         fichiers: body.fichiers ?? undefined,
+        // P1 — annotations sur le document
+        fichierId: body.fichierId,
+        fichierNom: body.fichierNom,
+        page: body.page,
+        position: body.position,
+        kind: body.kind ?? 'COMMENTAIRE',
+        parentId: body.parentId,
+        decision: body.decision,
       }),
     });
     if (!res.ok) {
@@ -1337,6 +1360,35 @@ class LaravelApiService {
     }
     const data = await res.json();
     return parseAnnotationFromApi(data?.data ?? data);
+  }
+
+  /** P1 — Mettre à jour une annotation (auteur ou DG). */
+  async updateAnnotation(id: string, body: { contenu?: string; statut?: 'OUVERT' | 'RESOLU'; decision?: 'FAVORABLE' | 'A_REVOIR' | 'INFO' | null; workflowEtapeId?: string | null }): Promise<Annotation> {
+    if (!this.baseUrl) throw new Error('API Laravel non configurée');
+    const res = await fetch(`${this.baseUrl}/api/annotations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: buildHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API update annotation: ${res.status} - ${text}`);
+    }
+    const data = await res.json();
+    return parseAnnotationFromApi(data?.data ?? data);
+  }
+
+  /** P1 — Supprimer une annotation (auteur ou DG). */
+  async deleteAnnotation(id: string): Promise<void> {
+    if (!this.baseUrl) throw new Error('API Laravel non configurée');
+    const res = await fetch(`${this.baseUrl}/api/annotations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: buildHeaders(),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API delete annotation: ${res.status} - ${text}`);
+    }
   }
 
   // ——— Notifications ———

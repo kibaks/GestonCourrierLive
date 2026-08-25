@@ -50,7 +50,6 @@ interface Notification {
   relatedId?: string;
   relatedType?: string;
   actionUrl?: string;
-  metadata?: Record<string, any>;
   createdAt: Date;
   updatedAt: Date;
 }

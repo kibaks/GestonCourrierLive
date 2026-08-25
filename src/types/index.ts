@@ -282,6 +282,23 @@ export interface Annotation {
   fichiers?: string[]; // URLs des fichiers joints
   /** Si renseigné, l'annotation est rattachée à une étape de workflow et affichée comme contenu de cette étape */
   workflowEtapeId?: string;
+  // — P1 : annotations ancrées sur un document (style Word/PDF) —
+  /** ID du fichier du courrier sur lequel l'annotation est posée */
+  fichierId?: string | null;
+  /** Nom lisible du fichier */
+  fichierNom?: string | null;
+  /** Page (1-based) */
+  page?: number | null;
+  /** Zone normalisée 0..1000 (indépendante du zoom) */
+  position?: { x: number; y: number; w: number; h: number } | null;
+  /** Nature du tracé */
+  kind?: 'COMMENTAIRE' | 'TRACE' | 'TEXTE' | 'TAMPOUR' | 'SIGNATURE';
+  /** Réponse dans un fil (thread) */
+  parentId?: string | null;
+  /** OUVERT | RESOLU */
+  statut?: 'OUVERT' | 'RESOLU';
+  /** Décision optionnelle du DG */
+  decision?: 'FAVORABLE' | 'A_REVOIR' | 'INFO' | null;
 }
 
 export interface Assignation {

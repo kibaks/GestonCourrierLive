@@ -20,6 +20,7 @@ import { simpleNotificationService } from '../services/simpleNotificationService
 import { store } from '../store/store';
 import { fetchCourriers } from '../store/slices/courriersSlice';
 import SearchableSelect from '../components/SearchableSelect';
+import PdfAnnotator from '../components/PdfAnnotator';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 // Déclaration pour le gestionnaire de statut global
@@ -44,6 +45,7 @@ import {
   faFile,
   faFileAlt,
   faFilePdf,
+  faCommentDots,
   faFileWord,
   faFileExcel,
   faFilePowerpoint,
@@ -180,6 +182,12 @@ const DetailCourrier: React.FC = () => {
   const [workflows, setWorkflows] = useState<WorkflowEtape[]>([]);
   const [assignations, setAssignations] = useState<Assignation[]>([]);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
+
+  // ——— P1 : Annotateur de documents (PDF, style Word/PDF) ———
+  const [annotatorFile, setAnnotatorFile] = useState<CategorieFichier | null>(null);
+  const [annotatorPage, setAnnotatorPage] = useState<number>(1);
+  const [annotatorBlobUrl, setAnnotatorBlobUrl] = useState<string>('');
+  const [annotatorLoading, setAnnotatorLoading] = useState<boolean>(false);
   const [dossiersFichiers, setDossiersFichiers] = useState<CategorieFichier[]>([]);
   const [expandedDossiers, setExpandedDossiers] = useState<Set<string>>(new Set());
   const [showViewFileModal, setShowViewFileModal] = useState(false);
@@ -1030,7 +1038,8 @@ const DetailCourrier: React.FC = () => {
           user: authorUser,
           isLoading: false,
           priority: 'medium',
-          annotationType: annotation.type
+          annotationType: annotation.type,
+          annotation // P1 : référence pour le lien « PDF — page X »
         });
       });
       
@@ -1204,6 +1213,46 @@ const DetailCourrier: React.FC = () => {
   };
 
   // Fonction pour annoter un fichier
+  // ——— P1 : Annotations sur le document (PDF, style Word/PDF) ———
+  const canAnnotateDocument =
+    hasRole(Role.SUPER_ADMIN) ||
+    hasRole(Role.DIRECTEUR_GENERAL) ||
+    hasRole(Role.DIRECTEUR) ||
+    hasRole(Role.CHEF_SERVICE) ||
+    hasRole(Role.SECRETAIRE);
+
+  const openDocumentAnnotator = async (fichier: CategorieFichier, page = 1) => {
+    if (!fichier) return;
+    setAnnotatorFile(fichier);
+    setAnnotatorPage(page);
+    setAnnotatorLoading(true);
+    setAnnotatorBlobUrl('');
+    try {
+      const blob = await laravelApiService.fetchFichierBlob(fichier.id);
+      setAnnotatorBlobUrl(URL.createObjectURL(blob));
+    } catch (e) {
+      console.error('[DetailCourrier] Chargement PDF annotateur:', e);
+      setAnnotatorFile(null);
+      showAlert('Impossible de charger le PDF pour annotation', 'error');
+    } finally {
+      setAnnotatorLoading(false);
+    }
+  };
+
+  const closeDocumentAnnotator = () => {
+    if (annotatorBlobUrl) URL.revokeObjectURL(annotatorBlobUrl);
+    setAnnotatorBlobUrl('');
+    setAnnotatorFile(null);
+  };
+
+  const handleAnnotatorCreated = (created: Annotation) => {
+    // Ajout optimiste + rechargement (la Timeline se reconstruit via l'effet sur `annotations`)
+    setAnnotations((prev) => [...prev, created]);
+    if (id) {
+      courrierService.getAnnotationsByCourrier(id).then((a) => setAnnotations(a)).catch(() => {});
+    }
+  };
+
   const handleAnnotateFile = async (fichierId: string) => {
     if (!id || !user) return;
     
@@ -1881,6 +1930,15 @@ const DetailCourrier: React.FC = () => {
                     title="Annoter le fichier"
                   >
                     <FontAwesomeIcon icon={faEdit} className="text-xs" />
+                  </button>
+                )}
+                {(item.extension === 'pdf' || (item.chemin || '').toLowerCase().endsWith('.pdf')) && !isAccuse && (
+                  <button
+                    onClick={() => openDocumentAnnotator(item, 1)}
+                    className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg"
+                    title="Annoter le document (commentaires sur le PDF)"
+                  >
+                    <FontAwesomeIcon icon={faCommentDots} className="text-xs" />
                   </button>
                 )}
                 {(hasRole(Role.SECRETAIRE) || hasRole(Role.SUPER_ADMIN) || hasRole(Role.DIRECTEUR_GENERAL)) && (
@@ -3420,6 +3478,30 @@ const DetailCourrier: React.FC = () => {
                                 </div>
                               )}
                             </h3>
+                            {task.annotation && task.annotation.page != null && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const f = dossiersFichiers.find((x) => x.id === task.annotation.fichierId);
+                                  if (f) {
+                                    openDocumentAnnotator(f, task.annotation.page);
+                                  } else {
+                                    showAlert('Fichier du document introuvable', 'warning');
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1.5 mt-2 text-[11px] px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 font-medium"
+                                title="Ouvrir le document et aller à cette page"
+                              >
+                                <FontAwesomeIcon icon={faFilePdf} className="w-3 h-3" />
+                                PDF — page {task.annotation.page}
+                                {task.annotation.decision && (
+                                  <span className="px-1 py-0 rounded bg-white border border-indigo-200 text-[10px]">
+                                    {task.annotation.decision === 'FAVORABLE' ? 'Favorable' : task.annotation.decision === 'A_REVOIR' ? 'À revoir' : 'Info'}
+                                  </span>
+                                )}
+                              </button>
+                            )}
                             <p className="text-sm text-slate-600 mt-1">{task.description}</p>
                           </div>
                           <div className="flex-shrink-0 text-right">
@@ -3994,6 +4076,46 @@ const DetailCourrier: React.FC = () => {
           onCancel={dialog.onCancel}
           onClose={closeDialog}
         />
+      )}
+
+      {/* P1 — Annotateur de document (PDF, style Word/PDF) */}
+      {annotatorFile && (
+        <div className="fixed inset-0 z-[120] bg-slate-900 flex flex-col">
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-slate-900 text-white shrink-0">
+            <FontAwesomeIcon icon={faCommentDots} className="text-indigo-400" />
+            <h2 className="text-sm font-semibold">Annotations du document</h2>
+            <span className="text-xs text-slate-400 truncate">{annotatorFile.nom}</span>
+            <button
+              type="button"
+              onClick={closeDocumentAnnotator}
+              className="ml-auto p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700"
+              title="Fermer (Échap)"
+            >
+              <FontAwesomeIcon icon={faTimes} />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            {annotatorLoading || !annotatorBlobUrl ? (
+              <div className="flex items-center justify-center h-full text-slate-300">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-400"></div>
+                <span className="ml-3">Chargement du PDF…</span>
+              </div>
+            ) : (
+              <PdfAnnotator
+                courrierId={id || ''}
+                fichierId={annotatorFile.id}
+                fileUrl={annotatorBlobUrl}
+                fileName={annotatorFile.nom}
+                initialPage={annotatorPage}
+                annotations={annotations}
+                canAnnotate={canAnnotateDocument}
+                resolveAuthorName={(uid) => userService.getUserById(uid)?.nom || 'Utilisateur'}
+                onClose={closeDocumentAnnotator}
+                onAnnotationCreated={handleAnnotatorCreated}
+              />
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
