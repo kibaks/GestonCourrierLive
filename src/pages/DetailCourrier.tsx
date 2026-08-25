@@ -4158,6 +4158,9 @@ const DetailCourrier: React.FC = () => {
                 initialPage={annotatorPage}
                 annotations={annotations}
                 canAnnotate={canAnnotateDocument}
+                canManageAnnotation={(a) =>
+                  !!user && (a.auteur === user.id || user.role === Role.DIRECTEUR_GENERAL || user.role === Role.SUPER_ADMIN)
+                }
                 resolveAuthorName={(uid) => userService.getUserById(uid)?.nom || 'Utilisateur'}
                 onClose={closeDocumentAnnotator}
                 onAnnotationCreated={handleAnnotatorCreated}

@@ -289,8 +289,25 @@ export interface Annotation {
   fichierNom?: string | null;
   /** Page (1-based) */
   page?: number | null;
-  /** Zone normalisée 0..1000 (indépendante du zoom) */
-  position?: { x: number; y: number; w: number; h: number } | null;
+  /** Zone normalisée 0..1000 (indépendante du zoom) — P2 : champs optionnels selon le kind */
+  position?: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    /** TRACE : points normalisés [x, y][] */
+    points?: number[][];
+    /** TRACE : couleur hex du trait */
+    color?: string;
+    /** TAMPOUR : FAVORABLE | A_REVOIR */
+    label?: string;
+    /** TAMPOUR : rotation en degrés */
+    rotation?: number;
+    /** TEXTE : copie du texte affiché */
+    text?: string;
+    /** SIGNATURE : image dataURL (PNG) */
+    image?: string;
+  } | null;
   /** Nature du tracé */
   kind?: 'COMMENTAIRE' | 'TRACE' | 'TEXTE' | 'TAMPOUR' | 'SIGNATURE';
   /** Réponse dans un fil (thread) */

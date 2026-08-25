@@ -1329,7 +1329,18 @@ class LaravelApiService {
     fichierId?: string;
     fichierNom?: string;
     page?: number;
-    position?: { x: number; y: number; w: number; h: number };
+    position?: {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      points?: number[][];
+      color?: string;
+      label?: string;
+      rotation?: number;
+      text?: string;
+      image?: string;
+    };
     kind?: 'COMMENTAIRE' | 'TRACE' | 'TEXTE' | 'TAMPOUR' | 'SIGNATURE';
     parentId?: string;
     decision?: 'FAVORABLE' | 'A_REVOIR' | 'INFO';
