@@ -1402,6 +1402,21 @@ class LaravelApiService {
     }
   }
 
+  /** P3a — Boîte « Courriers à annoter » du DG (DG / SUPER_ADMIN). */
+  async getDgAnnotationInbox(): Promise<import('../types').AnnotationInboxItem[]> {
+    if (!this.baseUrl) throw new Error('API Laravel non configurée');
+    const res = await fetch(`${this.baseUrl}/api/annotations/dg-inbox`, {
+      method: 'GET',
+      headers: buildHeaders(),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API dg-inbox: ${res.status} - ${text}`);
+    }
+    const data = await res.json();
+    return (data?.data ?? []) as import('../types').AnnotationInboxItem[];
+  }
+
   // ——— Notifications ———
   async createNotification(notification: {
     userId: string;

@@ -318,6 +318,21 @@ export interface Annotation {
   decision?: 'FAVORABLE' | 'A_REVOIR' | 'INFO' | null;
 }
 
+/** P3a — Entrée de la boîte « Courriers à annoter » du DG (GET /api/annotations/dg-inbox) */
+export interface AnnotationInboxItem {
+  id: string;
+  numero: string;
+  objet: string;
+  type: string;
+  sens: string;
+  priorite: string;
+  statut: string;
+  date_enregistrement: string;
+  nb_etapes_a_traiter: number;
+  nb_avis_a_traiter: number;
+  derniere_activite: string | null;
+}
+
 export interface Assignation {
   id: string;
   courrierId: string;

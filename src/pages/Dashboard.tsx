@@ -7,7 +7,7 @@ import { formulaireCourrierService } from '../services/formulaireCourrierService
 import { archivageService } from '../services/archivageService';
 import { laravelApiService } from '../services/laravelApiService';
 import { userService } from '../services/userService';
-import { Courrier, StatutCourrier, TypeCourrier, Role, SensCourrier, Priorite, Assignation } from '../types';
+import { Courrier, StatutCourrier, TypeCourrier, Role, SensCourrier, Priorite, Assignation, AnnotationInboxItem } from '../types';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -58,7 +58,9 @@ import {
   faEnvelope,
   faEnvelopeOpenText,
   faArrowDown,
-  faArrowUp
+  faArrowUp,
+  faPenFancy,
+  faListCheck
 } from '@fortawesome/free-solid-svg-icons';
 
 ChartJS.register(
@@ -132,6 +134,28 @@ const Dashboard: React.FC = () => {
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [evolutionRange, setEvolutionRange] = useState<'year' | 'month' | 'week' | 'day'>('week');
   const [evolutionChartType, setEvolutionChartType] = useState<'bar' | 'line'>('line');
+
+  // P3a — Boîte « Courriers à annoter » (DG / SUPER_ADMIN uniquement)
+  const isDgLike = user?.role === Role.DIRECTEUR_GENERAL || user?.role === Role.SUPER_ADMIN;
+  const [annotationInbox, setAnnotationInbox] = useState<AnnotationInboxItem[]>([]);
+  const [annotationInboxLoading, setAnnotationInboxLoading] = useState(false);
+  useEffect(() => {
+    if (!isDgLike) return;
+    let cancelled = false;
+    (async () => {
+      setAnnotationInboxLoading(true);
+      try {
+        const items = await laravelApiService.getDgAnnotationInbox();
+        if (!cancelled) setAnnotationInbox(items);
+      } catch {
+        /* non bloquant : la boîte reste vide */
+      } finally {
+        if (!cancelled) setAnnotationInboxLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.role]);
   
   // Cache pour optimiser les requêtes
   const cacheRef = useRef<Map<string, any>>(new Map());
@@ -1409,6 +1433,83 @@ minute: '2-digit'
           </div>
         </div>
       </div>
+
+      {/* P3a — Courriers à annoter (DG / SUPER_ADMIN) */}
+      {isDgLike && (
+        <div className="bg-white rounded-2xl overflow-hidden border border-slate-200/80 shadow-xl shadow-slate-200/40">
+          <div className="px-6 py-5 bg-gradient-to-r from-indigo-600 to-violet-600">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center">
+                <FontAwesomeIcon icon={faPenFancy} className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white tracking-tight">Courriers à annoter</h2>
+                <p className="text-sm text-indigo-100 mt-0.5">
+                  Étapes en attente de votre traitement et avis reçus à prendre en compte
+                </p>
+              </div>
+              <span className="ml-auto text-xs px-2.5 py-1 bg-white/15 text-white rounded-full font-semibold">
+                {annotationInbox.length}
+              </span>
+            </div>
+          </div>
+          <div className="p-4">
+            {annotationInboxLoading && (
+              <div className="text-sm text-slate-400 font-medium text-center py-8">Chargement…</div>
+            )}
+            {!annotationInboxLoading && annotationInbox.length === 0 && (
+              <div className="text-sm text-slate-500 font-medium text-center py-8">
+                Aucun courrier à annoter — vous êtes à jour.
+              </div>
+            )}
+            {!annotationInboxLoading && annotationInbox.length > 0 && (
+              <div className="divide-y divide-slate-100">
+                {annotationInbox.slice(0, 8).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => navigate(`/courriers/${item.id}`)}
+                    className="w-full text-left flex items-center gap-3 py-3 px-2 rounded-lg hover:bg-indigo-50/60 transition"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
+                      <FontAwesomeIcon icon={faListCheck} className="w-4 h-4 text-indigo-600" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-mono font-bold text-slate-700">{item.numero}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                          item.priorite === 'URGENTE' ? 'bg-red-100 text-red-700'
+                          : item.priorite === 'HAUTE' ? 'bg-orange-100 text-orange-700'
+                          : 'bg-slate-100 text-slate-500'
+                        }`}>{item.priorite}</span>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-800 truncate mt-0.5">{item.objet}</p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        {item.nb_etapes_a_traiter > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 border border-amber-200 text-amber-700 font-semibold">
+                            {item.nb_etapes_a_traiter} étape{item.nb_etapes_a_traiter > 1 ? 's' : ''} en attente
+                          </span>
+                        )}
+                        {item.nb_avis_a_traiter > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 border border-indigo-200 text-indigo-700 font-semibold">
+                            {item.nb_avis_a_traiter} avis à traiter
+                          </span>
+                        )}
+                        {item.derniere_activite && (
+                          <span className="text-[10px] text-slate-400">
+                            Activité : {new Date(item.derniere_activite).toLocaleDateString('fr-FR')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <FontAwesomeIcon icon={faChevronRight} className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Bloc combiné : Type/Sens (Internes/Externes/Entrants/Sortants) */}
       <div className="bg-white rounded-2xl overflow-hidden border border-slate-200/80 shadow-xl shadow-slate-200/40">

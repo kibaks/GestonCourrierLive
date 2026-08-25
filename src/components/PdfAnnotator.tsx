@@ -704,6 +704,31 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
     }
   };
 
+  // P3b — marquage « Résolu » en masse (annotations principales ouvertes que l'on peut gérer)
+  const openTopAnnotations = fileAnnotations.filter(
+    (a) =>
+      (a.statut ?? 'OUVERT') !== 'RESOLU' &&
+      !(a.parentId ?? null) &&
+      (canManageAnnotation ? canManageAnnotation(a) : true)
+  );
+  const resolveAll = async () => {
+    if (openTopAnnotations.length === 0) return;
+    setSaving(true);
+    setActionError(null);
+    let ok = 0;
+    for (const a of openTopAnnotations) {
+      try {
+        await laravelApiService.updateAnnotation(a.id, { statut: 'RESOLU' });
+        onAnnotationCreated({ ...a, statut: 'RESOLU' });
+        ok++;
+      } catch (e: any) {
+        setActionError(`${ok}/${openTopAnnotations.length} marquées résolu — ${e?.message || 'erreur'}`);
+        break;
+      }
+    }
+    setSaving(false);
+  };
+
   const removeAnnotation = async (a: Annotation) => {
     setSaving(true);
     setActionError(null);
@@ -1279,9 +1304,22 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
               <FontAwesomeIcon icon={faCommentDots} className="text-blue-600" />
               Commentaires
             </h3>
-            <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-semibold">
-              {totalComments}
-            </span>
+            <div className="flex items-center gap-2">
+              {openTopAnnotations.length > 0 && (
+                <button
+                  type="button"
+                  onClick={resolveAll}
+                  disabled={saving}
+                  title="Marquer toutes les annotations ouvertes comme résolu"
+                  className="text-[11px] px-2 py-1 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-1 disabled:opacity-50"
+                >
+                  <FontAwesomeIcon icon={faCircleCheck} className="text-[9px]" /> Tout résolu ({openTopAnnotations.length})
+                </button>
+              )}
+              <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-semibold">
+                {totalComments}
+              </span>
+            </div>
           </div>
 
           {/* Formulaire du commentaire en cours */}
