@@ -4132,7 +4132,8 @@ const DetailCourrier: React.FC = () => {
               />
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
