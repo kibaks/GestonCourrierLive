@@ -236,10 +236,19 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
     return uniq.sort((a, b) => new Date(a.dateCreation).getTime() - new Date(b.dateCreation).getTime());
   }, [annotations, sessionExtras, fichierId]);
 
-  // Numéro d'épingle stable (index dans la liste triée) — partagé document/panneau.
+  // Numéro d'épingle stable — P7 : seuls les commentaires principaux sont numérotés
+  // (l'encre, les tampons, textes et signatures n'entrent pas dans la numérotation,
+  // plus de trous : commentaire N+1 reste consécutif).
   const numberMap = useMemo(() => {
     const m = new Map<string, number>();
-    fileAnnotations.forEach((a, i) => m.set(a.id, i + 1));
+    let n = 0;
+    fileAnnotations.forEach((a) => {
+      const kind = a.kind || 'COMMENTAIRE';
+      if (kind === 'COMMENTAIRE' && !a.parentId) {
+        n += 1;
+        m.set(a.id, n);
+      }
+    });
     return m;
   }, [fileAnnotations]);
 
@@ -467,7 +476,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
           pageNum,
           pos,
           left: clamp(rect.right - wrapperRect.left, 8, wrapperRect.width - 56),
-          top: rect.bottom - wrapperRect.top + 6,
+          top: clamp(rect.bottom - wrapperRect.top + 6, 8, wrapperRect.height - 44),
           text: sel.toString().replace(/\s+/g, ' ').slice(0, 220),
         });
         setSaveError(null);
@@ -952,7 +961,11 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
     <div className="flex flex-col h-full min-h-0 text-slate-800">
       <style>{`
         .pdf-ann-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
-        .pdf-ann-text span { position: absolute; white-space: pre; pointer-events: auto; user-select: text; line-height: 1; }
+        /* P7 : la couche texte est INVISIBLE (dedans uniquement à la sélection).
+           Le canvas affiche déjà le texte ; la double couche provoquait un décalage
+           horizontal visible (polices de substitution différentes canvas/CSS).
+           La sélection continue de fonctionner (hitbox + surbrillance ::selection). */
+        .pdf-ann-text span { position: absolute; white-space: pre; pointer-events: auto; user-select: text; line-height: 1; color: transparent; text-shadow: none; }
         .pdf-ann-page { position: relative; }
         .stamp-render { transform: rotate(-8deg); }
       `}</style>
