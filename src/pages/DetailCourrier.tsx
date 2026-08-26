@@ -1222,12 +1222,10 @@ const DetailCourrier: React.FC = () => {
 
   // Fonction pour annoter un fichier
   // ——— P1 : Annotations sur le document (PDF, style Word/PDF) ———
+  // Réservé au Directeur Général (+ SUPER_ADMIN technique)
   const canAnnotateDocument =
-    hasRole(Role.SUPER_ADMIN) ||
     hasRole(Role.DIRECTEUR_GENERAL) ||
-    hasRole(Role.DIRECTEUR) ||
-    hasRole(Role.CHEF_SERVICE) ||
-    hasRole(Role.SECRETAIRE);
+    hasRole(Role.SUPER_ADMIN);
 
   const openDocumentAnnotator = async (fichier: CategorieFichier, page = 1) => {
     if (!fichier) return;
@@ -1980,7 +1978,7 @@ const DetailCourrier: React.FC = () => {
                     <FontAwesomeIcon icon={faEdit} className="text-xs" />
                   </button>
                 )}
-                {(item.extension === 'pdf' || (item.chemin || '').toLowerCase().endsWith('.pdf')) && !isAccuse && (
+                {canAnnotateDocument && (item.extension === 'pdf' || (item.chemin || '').toLowerCase().endsWith('.pdf')) && !isAccuse && (
                   <button
                     onClick={() => openDocumentAnnotator(item, 1)}
                     className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg"
