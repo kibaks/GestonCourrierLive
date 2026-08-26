@@ -4088,8 +4088,12 @@ const DetailCourrier: React.FC = () => {
         />
       )}
 
-      {/* P1 — Annotateur de document (PDF, style Word/PDF) */}
-      {annotatorFile && (
+      {/* P1 — Annotateur de document (PDF, style Word/PDF)
+          P7 : createPortal(document.body) — la modale était piégée dans un
+          contexte de pile intermédiaire (transform) : la sidebar fixed (z-50)
+          peignait par-dessus le côté gauche de la visionneuse (document rogné,
+          texte non sélectionnable sous la sidebar). */}
+      {annotatorFile && createPortal(
         <div className="fixed inset-0 z-[120] bg-slate-900 flex flex-col">
           <div className="flex items-center gap-3 px-4 py-2.5 bg-slate-900 text-white shrink-0">
             <FontAwesomeIcon icon={faCommentDots} className="text-indigo-400" />
