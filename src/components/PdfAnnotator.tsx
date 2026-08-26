@@ -1118,7 +1118,11 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
               </button>
             </div>
           )}
-          {!loading && !error && dims.map((p) => (
+          {!loading && !error && dims.map((p) => {
+            // P7 : annotations de CETTE page uniquement (les calques SVG/HTML/épingles
+            // étaient rendus sur TOUTES les pages : doublons sur docs multi-pages)
+            const pageAnns = fileAnnotations.filter((a) => (a.page ?? 1) === p.n);
+            return (
             <div
               key={`${p.n}-${scale}`}
               data-page={p.n}
@@ -1149,7 +1153,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
 
               {/* Tracés vectoriels : surlignages (COMMENTAIRE) + encre (TRACE) */}
               <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" className="absolute inset-0 pointer-events-none">
-                {fileAnnotations.map((a) => {
+                {pageAnns.map((a) => {
                   if (!a.position) return null;
                   const kind = a.kind || 'COMMENTAIRE';
                   if (kind === 'COMMENTAIRE') {
@@ -1217,7 +1221,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
 
               {/* Calque HTML : boîtes de texte, tampons, signatures */}
               <div className="absolute inset-0 pointer-events-none">
-                {fileAnnotations.map((a) => {
+                {pageAnns.map((a) => {
                   if (!a.position) return null;
                   const kind = a.kind || 'COMMENTAIRE';
                   const left = `${a.position.x / 10}%`;
@@ -1270,7 +1274,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
               </div>
 
               {/* Épingles numérotées (commentaires ancrés uniquement) */}
-              {fileAnnotations.map((a) =>
+              {pageAnns.map((a) =>
                 a.position && !a.parentId && (a.kind || 'COMMENTAIRE') === 'COMMENTAIRE' ? (
                   <button
                     key={a.id}
@@ -1429,7 +1433,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
                 </div>
               )}
             </div>
-          ))}
+          ); })}
           {!loading && !error && renderedCount < dims.length && (
             <div className="text-center py-3 text-slate-300 text-xs">
               Rendu : {renderedCount}/{dims.length} pages…
