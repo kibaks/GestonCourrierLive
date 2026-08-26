@@ -1978,11 +1978,11 @@ const DetailCourrier: React.FC = () => {
                     <FontAwesomeIcon icon={faEdit} className="text-xs" />
                   </button>
                 )}
-                {canAnnotateDocument && (item.extension === 'pdf' || (item.chemin || '').toLowerCase().endsWith('.pdf')) && !isAccuse && (
+                {canAnnotateDocument && ((item.extension === 'pdf' || (item.chemin || '').toLowerCase().endsWith('.pdf')) || (item.extension || '').toLowerCase().match(/^(jpe?g|png)$/) || (item.nom || '').toLowerCase().match(/\.(jpe?g|png)$/)) && !isAccuse && (
                   <button
                     onClick={() => openDocumentAnnotator(item, 1)}
                     className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg"
-                    title="Annoter le document (commentaires sur le PDF)"
+                    title="Annoter le document (PDF ou image)"
                   >
                     <FontAwesomeIcon icon={faCommentDots} className="text-xs" />
                   </button>

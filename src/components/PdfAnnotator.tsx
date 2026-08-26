@@ -37,6 +37,42 @@ import { laravelApiService } from '../services/laravelApiService';
 
 type Tool = 'COMMENTER' | 'ENCRE' | 'TEXTE' | 'TAMPON' | 'SIGNATURE';
 
+// P5 — images (JPG/PNG) : la visionneuse pdfjs n'accepte que du PDF.
+// Une image est enveloppée à la volée dans un PDF 1 page (jsPDF) pour réutiliser
+// la visionneuse, les 5 outils et l'export, sans modifier le fichier d'origine.
+export const isAnnotableImageName = (name: string): boolean =>
+  /\.(jpe?g|png)$/i.test(name || '');
+
+export const wrapImageAsPdfUrl = async (imageUrl: string): Promise<string> => {
+  const { jsPDF } = await import('jspdf');
+  const blob = await fetch(imageUrl).then((r) => {
+    if (!r.ok) throw new Error('Téléchargement de l’image impossible (HTTP ' + r.status + ')');
+    return r.blob();
+  });
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result as string);
+    fr.onerror = () => reject(new Error('Lecture de l’image impossible'));
+    fr.readAsDataURL(blob);
+  });
+  const img: HTMLImageElement = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Image illisible'));
+    el.src = dataUrl;
+  });
+  const w = img.naturalWidth || 1;
+  const h = img.naturalHeight || 1;
+  const pdf = new jsPDF({
+    orientation: w > h ? 'landscape' : 'portrait',
+    unit: 'px',
+    format: [w, h],
+    compress: true,
+  });
+  pdf.addImage(dataUrl, blob.type === 'image/png' ? 'PNG' : 'JPEG', 0, 0, w, h);
+  return pdf.output('bloburl') as unknown as string;
+};
+
 interface PageDim {
   n: number;
   width: number;
@@ -228,7 +264,12 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
         setLoading(true);
         const pdfjs: any = await import('pdfjs-dist');
         pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
-        const doc = await pdfjs.getDocument({ url: fileUrl }).promise;
+        // P5 : image (JPG/PNG) → enveloppée dans un PDF 1 page avant rendu
+        let url = fileUrl;
+        if (isAnnotableImageName(fileName)) {
+          url = await wrapImageAsPdfUrl(fileUrl);
+        }
+        const doc = await pdfjs.getDocument({ url }).promise;
         if (cancelled) {
           doc.destroy();
           return;
@@ -751,8 +792,14 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
     setActionError(null);
     try {
       const pdfLib: any = await import('pdf-lib');
-      const blob = await fetch(fileUrl).then((r) => r.blob());
-      const bytes = await blob.arrayBuffer();
+      // P5 : pour une image, on charge le PDF enveloppé (et non le fichier image brut)
+      let bytes: ArrayBuffer;
+      if (isAnnotableImageName(fileName)) {
+        const wrappedUrl = await wrapImageAsPdfUrl(fileUrl);
+        bytes = await fetch(wrappedUrl).then((r) => r.arrayBuffer());
+      } else {
+        bytes = await fetch(fileUrl).then((r) => r.arrayBuffer());
+      }
       const doc = await pdfLib.PDFDocument.load(bytes, { ignoreEncryption: true });
       const helv = await doc.embedFont(pdfLib.StandardFonts.Helvetica);
       const helvBold = await doc.embedFont(pdfLib.StandardFonts.HelveticaBold);
