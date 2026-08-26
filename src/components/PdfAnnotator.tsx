@@ -187,6 +187,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [pending, setPending] = useState<PendingSelection | null>(null);
+  const [draftOpen, setDraftOpen] = useState(false); // P6 : formulaire flottant ouvert (sticky, en avant-plan)
   const [draftContent, setDraftContent] = useState('');
   const [draftDecision, setDraftDecision] = useState<'' | 'FAVORABLE' | 'A_REVOIR' | 'INFO'>('');
   const [saving, setSaving] = useState(false);
@@ -406,6 +407,10 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
         setSignDraft(null);
         return;
       }
+      if (draftOpen) {
+        setDraftOpen(false);
+        return;
+      }
       if (pending) {
         cancelDraft();
         return;
@@ -420,7 +425,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
       window.removeEventListener('keydown', onKey);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onClose, textDraft, signDraft, pending]);
+  }, [onClose, textDraft, signDraft, pending, draftOpen]);
 
   // Détection de la sélection de texte (fin de souris) — outil « Commenter » uniquement.
   const handleMouseUp = useCallback(
@@ -432,7 +437,9 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
       setTimeout(() => {
         const sel = window.getSelection();
         if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-          setPending((p) => (p ? null : p));
+          // P6 : formulaire ouvert → STICKY (il ne disparaît pas quand on clique sur le document)
+          if (draftOpen) return;
+          setPending(null);
           return;
         }
         const range = sel.getRangeAt(0);
@@ -466,11 +473,12 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
         setSaveError(null);
       }, 10);
     },
-    [canAnnotate, tool]
+    [canAnnotate, tool, draftOpen]
   );
 
   const openDraftFor = useCallback((p: PendingSelection) => {
     setPending(p);
+    setDraftOpen(true);
     setDraftContent('');
     setDraftDecision('');
     setSaveError(null);
@@ -478,6 +486,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
 
   const cancelDraft = useCallback(() => {
     setPending(null);
+    setDraftOpen(false);
     window.getSelection()?.removeAllRanges();
   }, []);
 
@@ -962,6 +971,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
                 onClick={() => {
                   setTool(t.id);
                   setPending(null);
+                  setDraftOpen(false);
                   setTextDraft(null);
                   setSignDraft(null);
                 }}
@@ -1248,7 +1258,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
 
               {/* Épingles numérotées (commentaires ancrés uniquement) */}
               {fileAnnotations.map((a) =>
-                a.position && (a.kind || 'COMMENTAIRE') === 'COMMENTAIRE' ? (
+                a.position && !a.parentId && (a.kind || 'COMMENTAIRE') === 'COMMENTAIRE' ? (
                   <button
                     key={a.id}
                     type="button"
@@ -1284,7 +1294,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
               )}
 
               {/* Bouton flottant « Commenter » (sélection) */}
-              {canAnnotate && tool === 'COMMENTER' && pending && pending.pageNum === p.n && (
+              {canAnnotate && tool === 'COMMENTER' && pending && !draftOpen && pending.pageNum === p.n && (
                 <button
                   type="button"
                   onClick={() => openDraftFor(pending)}
@@ -1297,6 +1307,76 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
               )}
 
               {/* Éditeur inline de l'encadré texte */}
+              {/* P6 — Formulaire du commentaire EN AVANT-PLAN (flottant sur la page, sticky,
+                  reste ouvert même quand on clique sur le document) */}
+              {canAnnotate && draftOpen && pending && pending.pageNum === p.n && (
+                <div
+                  className="absolute z-40 w-[300px] max-w-[86%] bg-white border-2 border-blue-400 rounded-xl shadow-2xl p-3"
+                  style={{
+                    left: clamp(pending.left - 12, 8, Math.max(8, p.width - 308)),
+                    top: pending.top + 8 + 208 <= p.height - 8 ? pending.top + 8 : Math.max(8, pending.top - 216),
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <FontAwesomeIcon icon={faCommentDots} className="text-blue-600 text-xs" />
+                    <span className="text-xs font-semibold text-slate-700">Nouveau commentaire — page {pending.pageNum}</span>
+                    <button
+                      type="button"
+                      onClick={cancelDraft}
+                      className="ml-auto p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                      title="Fermer (Échap)"
+                    >
+                      <FontAwesomeIcon icon={faXmark} className="text-xs" />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 italic bg-slate-50 border border-slate-200 rounded-lg p-1.5 mb-2 line-clamp-2">
+                    « {pending.text} »
+                  </p>
+                  <textarea
+                    value={draftContent}
+                    onChange={(e) => setDraftContent(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        saveComment();
+                      }
+                    }}
+                    placeholder="Votre commentaire… (Ctrl+Entrée pour enregistrer)"
+                    rows={3}
+                    autoFocus
+                    className="w-full text-sm border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <select
+                    value={draftDecision}
+                    onChange={(e) => setDraftDecision(e.target.value as '' | 'FAVORABLE' | 'A_REVOIR' | 'INFO')}
+                    className="mt-1.5 w-full text-xs border border-slate-300 rounded-lg p-1.5 bg-white"
+                  >
+                    <option value="">Décision (optionnelle)</option>
+                    <option value="FAVORABLE">✓ Favorable</option>
+                    <option value="A_REVOIR">⚠ À revoir</option>
+                    <option value="INFO">ℹ Info</option>
+                  </select>
+                  <div className="flex items-center justify-end gap-1.5 mt-2">
+                    <button
+                      type="button"
+                      onClick={cancelDraft}
+                      className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveComment}
+                      disabled={saving || !draftContent.trim()}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {saving ? '…' : 'Enregistrer'}
+                    </button>
+                  </div>
+                  {saveError && <p className="text-xs text-red-600 mt-1.5">{saveError}</p>}
+                </div>
+              )}
+
               {toolActive && tool === 'TEXTE' && textDraft && textDraft.pageNum === p.n && (
                 <div
                   className="absolute z-30 w-[38%] min-w-[220px] bg-white border-2 border-blue-400 rounded-lg shadow-2xl p-2"
@@ -1369,59 +1449,9 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
             </div>
           </div>
 
-          {/* Formulaire du commentaire en cours */}
-          {pending && canAnnotate && (
-            <div className="m-3 p-3 bg-blue-50/70 border border-blue-200 rounded-xl">
-              <p className="text-xs text-slate-500 mb-1">
-                Page {pending.pageNum} — texte sélectionné :
-              </p>
-              <p className="text-xs text-slate-700 italic bg-white border border-slate-200 rounded-lg p-2 mb-2 line-clamp-3">
-                « {pending.text} »
-              </p>
-              <textarea
-                value={draftContent}
-                onChange={(e) => setDraftContent(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault();
-                    saveComment();
-                  }
-                }}
-                placeholder="Votre commentaire… (Ctrl+Entrée pour enregistrer)"
-                rows={3}
-                autoFocus
-                className="w-full text-sm border border-slate-300 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-              <div className="flex items-center gap-2 mt-2">
-                <select
-                  value={draftDecision}
-                  onChange={(e) => setDraftDecision(e.target.value as '' | 'FAVORABLE' | 'A_REVOIR' | 'INFO')}
-                  className="flex-1 text-xs border border-slate-300 rounded-lg p-1.5 bg-white"
-                >
-                  <option value="">Décision (optionnelle)</option>
-                  <option value="FAVORABLE">✓ Favorable</option>
-                  <option value="A_REVOIR">⚠ À revoir</option>
-                  <option value="INFO">ℹ Info</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={cancelDraft}
-                  className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="button"
-                  onClick={saveComment}
-                  disabled={saving || !draftContent.trim()}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {saving ? '…' : 'Enregistrer'}
-                </button>
-              </div>
-              {saveError && <p className="text-xs text-red-600 mt-2">{saveError}</p>}
-            </div>
-          )}
+          {/* P6 — le formulaire du commentaire est maintenant flottant EN AVANT-PLAN sur la
+              page (bloc « Nouveau commentaire ») : il ne peut plus être masqué/oublié
+              dans le panneau latéral. */}
 
           {/* Liste (avec fils de réponse) */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2">

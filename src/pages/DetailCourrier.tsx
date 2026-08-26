@@ -1259,34 +1259,6 @@ const DetailCourrier: React.FC = () => {
     }
   };
 
-  const handleAnnotateFile = async (fichierId: string) => {
-    if (!id || !user) return;
-    
-    try {
-      const file = dossiersFichiers.find(f => f.id === fichierId);
-      if (!file) {
-        showAlert('Fichier non trouvé', 'error');
-        return;
-      }
-
-      // Créer une copie annotée du fichier
-      const annotatedFileName = `annoté_${file.nom}`;
-      const annotatedContent = `Fichier annoté\n\nOriginal: ${file.nom}\nDate d'annotation: ${new Date().toLocaleString('fr-FR')}\nAnnoté par: ${user.nom} (${user.role})\n\n[Contenu de l'annotation à ajouter]`;
-      
-      const blob = new Blob([annotatedContent], { type: 'text/plain;charset=utf-8' });
-      const annotatedFile = new File([blob], annotatedFileName, { type: 'text/plain' });
-
-      // Créer le fichier annoté dans le même dossier
-      await categorieFichierService.createFichier(id!, annotatedFile.name, annotatedFile, file.parentId, user.id, annotatedFile.size, false);
-      
-      // Mettre à jour l'affichage
-      await loadDossiersFichiers(id);
-      showAlert('Fichier annoté avec succès', 'success');
-    } catch (err: any) {
-      showAlert(err?.message || 'Erreur lors de l\'annotation du fichier', 'error');
-    }
-  };
-
   const commitInlineAnnotation = async () => {
     const trimmed = newAnnotationContent.trim();
     if (!trimmed || !user?.id || !courrier?.id || annotationSubmitting) return;
@@ -1969,15 +1941,6 @@ const DetailCourrier: React.FC = () => {
                 >
                   <FontAwesomeIcon icon={faDownload} className="text-xs" />
                 </button>
-                {!isAccuse && (
-                  <button
-                    onClick={() => handleAnnotateFile(item.id)}
-                    className="p-1.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 rounded-lg"
-                    title="Annoter le fichier"
-                  >
-                    <FontAwesomeIcon icon={faEdit} className="text-xs" />
-                  </button>
-                )}
                 {canAnnotateDocument && ((item.extension === 'pdf' || (item.chemin || '').toLowerCase().endsWith('.pdf')) || (item.extension || '').toLowerCase().match(/^(jpe?g|png)$/) || (item.nom || '').toLowerCase().match(/\.(jpe?g|png)$/)) && !isAccuse && (
                   <button
                     onClick={() => openDocumentAnnotator(item, 1)}
