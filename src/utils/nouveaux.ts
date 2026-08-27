@@ -1,16 +1,25 @@
 // P8 — Badges « nouveaux courriers » : un courrier est « nouveau » si sa date de
 // création est postérieure à la dernière visite de la liste par cet utilisateur
-// (traçage localStorage, zéro backend). Défaut : fenêtre de 7 jours pour un
-// premier passage (évite de badger tout l'historique).
+// (traçage localStorage, zéro backend). Premier passage : référence = maintenant
+// → les badges n'apparaissent qu'après une visite, pour les courriers créés
+// ENTRE deux visites.
 const KEY = 'sigc_last_liste_courriers';
-const DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const getLastListeVisit = (): number => {
   try {
-    const v = Number(window.localStorage.getItem(KEY));
-    return Number.isFinite(v) && v > 0 ? v : Date.now() - DEFAULT_WINDOW_MS;
+    const raw = window.localStorage.getItem(KEY);
+    if (raw === null) {
+      // Premier passage : référence = maintenant → aucun badge au tout premier
+      // affichage (les badges n'apparaissent qu'après une visite, pour les
+      // courriers créés ENTRE deux visites).
+      const now = Date.now();
+      window.localStorage.setItem(KEY, String(now));
+      return now;
+    }
+    const v = Number(raw);
+    return Number.isFinite(v) && v > 0 ? v : Date.now();
   } catch {
-    return Date.now() - DEFAULT_WINDOW_MS;
+    return Date.now();
   }
 };
 

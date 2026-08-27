@@ -198,9 +198,13 @@ const ModalPortal: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const ListeCourriers: React.FC = () => {
   console.log('🔄 ListeCourriers component rendered');
   const navigate = useNavigate();
-  // P8 — Consultation de la liste = marquage « lu » (éteint les badges « Nouveau »)
+  // P8 — Quitter la liste = marquage « lu » (éteint les badges « Nouveau »).
+  // À l'unmount (et non au mount) : les données se chargent async après le
+  // mount, un marquage prématuré masquerait les pastilles de la 1re visite.
   useEffect(() => {
-    touchListeVisit();
+    return () => {
+      touchListeVisit();
+    };
   }, []);
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
