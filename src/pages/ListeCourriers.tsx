@@ -22,6 +22,7 @@ import CustomDialog, { DialogOptions } from '../components/CustomDialog';
 import Preloader from '../components/Preloader';
 import SearchableSelect from '../components/SearchableSelect';
 import CourriersSkeleton from '../components/CourriersSkeleton';
+import { isNouveauCourrier, touchListeVisit } from '../utils/nouveaux';
 import ListeCourrierStats from '../components/ListeCourrierStats';
 import ListeCourrierStatsCards from '../components/ListeCourrierStatsCards';
 import StatsViewToggle from '../components/StatsViewToggle';
@@ -197,6 +198,10 @@ const ModalPortal: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const ListeCourriers: React.FC = () => {
   console.log('🔄 ListeCourriers component rendered');
   const navigate = useNavigate();
+  // P8 — Consultation de la liste = marquage « lu » (éteint les badges « Nouveau »)
+  useEffect(() => {
+    touchListeVisit();
+  }, []);
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const auth = useAuth();
@@ -8095,8 +8100,16 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           setDraggedOverFolderId(null);
         }}
         onClick={() => {
-          setSelectedCourrierForResume(courrier);
-          setShowResumeModal(true);
+          // P8 — Accès direct : courrier avec PDF/image → visionneuse
+          // d'annotation (?vue=annotations) ; sinon → résumé (comportement d'avant)
+          const main = getMainFile(courrier);
+          const ext = main ? (main.split('.').pop() || '').toLowerCase() : '';
+          if (['pdf', 'jpg', 'jpeg', 'png'].includes(ext)) {
+            navigate(`/courriers/${courrier.id}?vue=annotations`);
+          } else {
+            setSelectedCourrierForResume(courrier);
+            setShowResumeModal(true);
+          }
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -8142,6 +8155,25 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold text-surface-900">{courrier.numero}</span>
+                {isNouveauCourrier(courrier.createdAt) && (
+                  <span
+                    className="px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wide"
+                    title="Nouveau courrier (créé après votre dernière visite de la liste)"
+                  >
+                    Nouveau
+                  </span>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCourrierForResume(courrier);
+                    setShowResumeModal(true);
+                  }}
+                  className="p-1.5 rounded-lg text-surface-500 hover:text-surface-800 hover:bg-surface-100 transition-colors"
+                  title="Résumé du courrier"
+                >
+                  <FontAwesomeIcon icon={faFileAlt} className="text-xs" />
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -11341,6 +11373,16 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               }}
               onClick={(e) => e.stopPropagation()}
             >
+              <button
+                className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex items-center gap-2 text-indigo-700 font-medium"
+                onClick={() => {
+                  navigate(`/courriers/${contextMenu.courrier!.id}?vue=annotations`);
+                  setContextMenu(prev => ({ ...prev, open: false }));
+                }}
+              >
+                <FontAwesomeIcon icon={faFilePdf} className="w-4 h-4" />
+                Visualiser / Annoter
+              </button>
               <button
                 className="w-full text-left px-3 py-2 text-sm hover:bg-surface-50 flex items-center gap-2"
                 onClick={() => {

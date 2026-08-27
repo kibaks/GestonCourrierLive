@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useDispatch } from 'react-redux';
-import type { AppDispatch } from '../store/store';
+import { useDispatch, useSelector } from 'react-redux';
+import type { AppDispatch, RootState } from '../store/store';
+import { countNouveauxCourriers } from '../utils/nouveaux';
 import { useAuth } from '../context/AuthContext';
 import { useSyncStatus } from '../context/SyncStatusContext';
 import { Role } from '../types';
@@ -57,6 +58,9 @@ interface Notification {
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const dispatch = useDispatch<AppDispatch>();
+  // P8 — Badge « nouveaux courriers » sur l'item « Courriers » du menu principal
+  const courriersItems = useSelector((s: RootState) => s.courriers.items);
+  const nouveauxCourriersCount = countNouveauxCourriers(courriersItems);
   const { user, logout, hasRole } = useAuth();
   const { online, isApiStatus } = useNetworkStatus();
   const syncStatus = useSyncStatus();
@@ -411,6 +415,14 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                       <FontAwesomeIcon icon={faFileAlt} className="w-4 h-4" />
                     </div>
                     <span className="font-medium flex-1 text-left">Courriers</span>
+                    {nouveauxCourriersCount > 0 && (
+                      <span
+                        className="min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center"
+                        title={`${nouveauxCourriersCount} nouveau(x) courrier(s)`}
+                      >
+                        {nouveauxCourriersCount > 9 ? '9+' : nouveauxCourriersCount}
+                      </span>
+                    )}
                     <FontAwesomeIcon icon={expandedCourriers ? faChevronDown : faChevronRight} className="w-3.5 h-3.5 sidebar-text-muted group-hover:sidebar-text" />
                   </button>
                   {expandedCourriers && (

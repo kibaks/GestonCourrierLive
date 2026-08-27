@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { courrierService } from '../services/courrierService';
 import { userService } from '../services/userService';
@@ -180,6 +180,7 @@ const accuseGenSessionCache = new Set<string>();
 
 const DetailCourrier: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, hasRole } = useAuth();
   
@@ -1250,6 +1251,28 @@ const DetailCourrier: React.FC = () => {
     setAnnotatorBlobUrl('');
     setAnnotatorFile(null);
   };
+
+  // P8 — Accès direct : arrivée via ?vue=annotations (clic sur le courrier dans
+  // la liste) → ouverture automatique de la visionneuse sur le 1er fichier
+  // PDF/image. Non-DG : lecture seule (canAnnotate = false). Sans fichier :
+  // on reste sur le détail (aucun effet de bord).
+  const autoAnnotOpenedRef = React.useRef(false);
+  useEffect(() => {
+    if (autoAnnotOpenedRef.current) return;
+    if (searchParams.get('vue') !== 'annotations') return;
+    const first = dossiersFichiers.find(
+      (f) =>
+        f.type === 'fichier' &&
+        !f.estAccuseReception &&
+        ((f.extension === 'pdf' || (f.chemin || '').toLowerCase().endsWith('.pdf')) ||
+          (f.extension || '').toLowerCase().match(/^(jpe?g|png)$/) ||
+          (f.nom || '').toLowerCase().match(/\.(jpe?g|png)$/))
+    );
+    if (first) {
+      autoAnnotOpenedRef.current = true;
+      void openDocumentAnnotator(first, 1);
+    }
+  }, [dossiersFichiers, searchParams]);
 
   const handleAnnotatorCreated = (created: Annotation) => {
     // Ajout optimiste + rechargement (la Timeline se reconstruit via l'effet sur `annotations`)
@@ -4102,7 +4125,16 @@ const DetailCourrier: React.FC = () => {
             <button
               type="button"
               onClick={closeDocumentAnnotator}
-              className="ml-auto p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700"
+              className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-200 hover:text-white hover:bg-slate-700"
+              title="Voir le détail du courrier"
+            >
+              <FontAwesomeIcon icon={faFileAlt} className="text-xs" />
+              Voir le détail
+            </button>
+            <button
+              type="button"
+              onClick={closeDocumentAnnotator}
+              className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700"
               title="Fermer (Échap)"
             >
               <FontAwesomeIcon icon={faTimes} />
