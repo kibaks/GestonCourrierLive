@@ -10798,8 +10798,16 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     }`}
                     style={{ animationDelay: `${index * 30}ms` }}
                     onClick={() => {
-                      setSelectedCourrierForResume(courrier);
-                      setShowResumeModal(true);
+                      // P8 — Accès direct (même règle que la vue tableau) :
+                      // courrier avec PDF/image → visionneuse d'annotation
+                      const main = getMainFile(courrier);
+                      const ext = main ? (main.split('.').pop() || '').toLowerCase() : '';
+                      if (['pdf', 'jpg', 'jpeg', 'png'].includes(ext)) {
+                        navigate(`/courriers/${courrier.id}?vue=annotations`);
+                      } else {
+                        setSelectedCourrierForResume(courrier);
+                        setShowResumeModal(true);
+                      }
                     }}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -10842,6 +10850,25 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-slate-900">{courrier.numero}</span>
+                            {isNouveauCourrier(courrier.createdAt) && (
+                              <span
+                                className="px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wide flex-shrink-0"
+                                title="Nouveau courrier (créé après votre dernière visite de la liste)"
+                              >
+                                Nouveau
+                              </span>
+                            )}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCourrierForResume(courrier);
+                                setShowResumeModal(true);
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors flex-shrink-0"
+                              title="Résumé du courrier"
+                            >
+                              <FontAwesomeIcon icon={faFileAlt} className="text-xs" />
+                            </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
