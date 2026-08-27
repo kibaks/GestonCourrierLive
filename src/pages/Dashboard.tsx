@@ -8,6 +8,7 @@ import { archivageService } from '../services/archivageService';
 import { laravelApiService } from '../services/laravelApiService';
 import { userService } from '../services/userService';
 import { Courrier, StatutCourrier, TypeCourrier, Role, SensCourrier, Priorite, Assignation, AnnotationInboxItem } from '../types';
+import { isNouveauCourrier } from '../utils/nouveaux';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -1931,7 +1932,17 @@ minute: '2-digit'
                         ? 'bg-blue-50/80 hover:bg-blue-50'
                         : 'hover:bg-slate-50'
                     } ${selectedCourriers.has(courrier.id) ? 'border-l-4 border-l-blue-500' : 'border-l-4 border-l-transparent'}`}
-                    onClick={() => navigate(`/courriers/${courrier.id}`)}
+                    onClick={() => {
+                      // P8 — Accès direct : courrier avec PDF/image → visionneuse
+                      // d'annotation (?vue=annotations) ; sinon → détail (comportement d'avant)
+                      const main = getMainFile(courrier);
+                      const ext = main ? (main.split('.').pop() || '').toLowerCase() : '';
+                      if (['pdf', 'jpg', 'jpeg', 'png'].includes(ext)) {
+                        navigate(`/courriers/${courrier.id}?vue=annotations`);
+                      } else {
+                        navigate(`/courriers/${courrier.id}`);
+                      }
+                    }}
                   >
                     <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center">
@@ -1964,8 +1975,18 @@ minute: '2-digit'
                           })()}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-slate-900 text-sm truncate" title={courrier.numero}>
-                            {courrier.numero}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="font-semibold text-slate-900 text-sm truncate" title={courrier.numero}>
+                              {courrier.numero}
+                            </div>
+                            {isNouveauCourrier(courrier.createdAt) && (
+                              <span
+                                className="shrink-0 px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wide"
+                                title="Nouveau courrier (créé après votre dernière visite de la liste)"
+                              >
+                                Nouveau
+                              </span>
+                            )}
                           </div>
                           <p className="mt-0.5 text-xs text-slate-600 line-clamp-2" title={courrier.objet?.replace(/<[^>]*>/g, '') || ''}>
                             {courrier.objet?.replace(/<[^>]*>/g, '') || ''}
