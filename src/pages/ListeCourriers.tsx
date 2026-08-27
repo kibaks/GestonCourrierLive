@@ -199,11 +199,20 @@ const ListeCourriers: React.FC = () => {
   console.log('🔄 ListeCourriers component rendered');
   const navigate = useNavigate();
   // P8 — Quitter la liste = marquage « lu » (éteint les badges « Nouveau »).
-  // À l'unmount (et non au mount) : les données se chargent async après le
-  // mount, un marquage prématuré masquerait les pastilles de la 1re visite.
+  // FIX P8.1 : ListeCourriers peut se DÉMONTER PENDANT le chargement initial
+  // (re-montage React après l'authentification) — un marquage à chaque unmount
+  // éteignait les badges avant que la liste soit visible (vérifié : touch à
+  // t+2 s sans aucune navigation). Le marquage n'a donc lieu que si :
+  //   - l'unmount survient après ≥ 5 s de présence (vraie consultation), ou
+  //   - pagehide (fermeture d'onglet) : marquage inconditionnel.
   useEffect(() => {
+    const t0 = Date.now();
+    const MIN_DWELL_MS = 5000;
+    const onHide = () => touchListeVisit();
+    window.addEventListener('pagehide', onHide);
     return () => {
-      touchListeVisit();
+      window.removeEventListener('pagehide', onHide);
+      if (Date.now() - t0 >= MIN_DWELL_MS) touchListeVisit();
     };
   }, []);
   const location = useLocation();
