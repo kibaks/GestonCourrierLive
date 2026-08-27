@@ -1260,14 +1260,21 @@ const DetailCourrier: React.FC = () => {
   useEffect(() => {
     if (autoAnnotOpenedRef.current) return;
     if (searchParams.get('vue') !== 'annotations') return;
-    const first = dossiersFichiers.find(
-      (f) =>
-        f.type === 'fichier' &&
-        !f.estAccuseReception &&
-        ((f.extension === 'pdf' || (f.chemin || '').toLowerCase().endsWith('.pdf')) ||
-          (f.extension || '').toLowerCase().match(/^(jpe?g|png)$/) ||
-          (f.nom || '').toLowerCase().match(/\.(jpe?g|png)$/))
-    );
+    const isViewable = (f: CategorieFichier) =>
+      (f.extension === 'pdf' || (f.chemin || '').toLowerCase().endsWith('.pdf')) ||
+      (f.extension || '').toLowerCase().match(/^(jpe?g|png)$/) ||
+      (f.nom || '').toLowerCase().match(/\.(jpe?g|png)$/);
+    const isDerivedExport = (f: CategorieFichier) =>
+      f.nom.startsWith('annoté_') || f.nom.startsWith('traité_') || f.nom.startsWith('final_');
+    // Priorité au fichier principal (non-AR, non export dérivé) ; sinon 1er
+    // fichier visualisable non-AR.
+    const first =
+      dossiersFichiers.find(
+        (f) => f.type === 'fichier' && !f.estAccuseReception && !f.nom.startsWith('AR_') && !isDerivedExport(f) && isViewable(f)
+      ) ||
+      dossiersFichiers.find(
+        (f) => f.type === 'fichier' && !f.estAccuseReception && isViewable(f)
+      );
     if (first) {
       autoAnnotOpenedRef.current = true;
       void openDocumentAnnotator(first, 1);
