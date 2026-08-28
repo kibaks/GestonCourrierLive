@@ -725,15 +725,22 @@ const ListeCourriers: React.FC = () => {
   });
   useEffect(() => {
     const onGlobalClick = () => setContextMenu(prev => ({ ...prev, open: false, courrier: null }));
+    // P11 — B9 : le listener « contextmenu » global fermait le menu dès le même clic droit
+    // qui l'ouvrait (la propagation atteignait window après le handler de la ligne).
+    // On laisse passer les clics droits qui ouvrent un menu (leur handler fait preventDefault).
+    const onGlobalContextMenu = (e: MouseEvent) => {
+      if (e.defaultPrevented) return;
+      setContextMenu(prev => ({ ...prev, open: false, courrier: null }));
+    };
     const onEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onGlobalClick();
     };
     window.addEventListener('click', onGlobalClick);
-    window.addEventListener('contextmenu', onGlobalClick);
+    window.addEventListener('contextmenu', onGlobalContextMenu);
     window.addEventListener('keydown', onEsc);
     return () => {
       window.removeEventListener('click', onGlobalClick);
-      window.removeEventListener('contextmenu', onGlobalClick);
+      window.removeEventListener('contextmenu', onGlobalContextMenu);
       window.removeEventListener('keydown', onEsc);
     };
   }, []);
