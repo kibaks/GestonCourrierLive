@@ -70,7 +70,7 @@ const GestionUtilisateurs: React.FC = () => {
     direction: '',
     service: '',
     entiteId: undefined,
-    actif: true
+    actif: true,
     estSecrétaireDG: false
   });
   const [entities, setEntities] = useState<EntiteOrganisationnelle[]>([]);
@@ -205,7 +205,7 @@ const GestionUtilisateurs: React.FC = () => {
       direction: '',
       service: '',
       entiteId: undefined,
-      actif: true
+      actif: true,
       estSecrétaireDG: false
     });
     setSelectedDirectionId('');
