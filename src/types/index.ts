@@ -87,6 +87,7 @@ export interface Utilisateur {
   direction?: string;
   service?: string;
   entiteId?: string; // ID de l'entité organisationnelle (sous-service, division, bureau, cellule, etc.)
+  estSecrétaireDG?: boolean; // P11 — secrétaire du DG : seul habilité à orienter les courriers
   actif: boolean;
   photoUrl?: string;
   dateCreation: Date;

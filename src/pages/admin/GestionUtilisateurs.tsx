@@ -62,6 +62,7 @@ const GestionUtilisateurs: React.FC = () => {
     service: string;
     entiteId?: string;
     actif: boolean;
+    estSecrétaireDG: boolean;
   }>({
     nom: '',
     email: '',
@@ -70,6 +71,7 @@ const GestionUtilisateurs: React.FC = () => {
     service: '',
     entiteId: undefined,
     actif: true
+    estSecrétaireDG: false
   });
   const [entities, setEntities] = useState<EntiteOrganisationnelle[]>([]);
   const [selectedDirectionId, setSelectedDirectionId] = useState<string>('');
@@ -204,6 +206,7 @@ const GestionUtilisateurs: React.FC = () => {
       service: '',
       entiteId: undefined,
       actif: true
+      estSecrétaireDG: false
     });
     setSelectedDirectionId('');
     setSelectedDivisionId('');
@@ -221,7 +224,8 @@ const GestionUtilisateurs: React.FC = () => {
       direction: user.direction || '',
       service: user.service || '',
       entiteId: user.entiteId,
-      actif: user.actif
+      actif: user.actif,
+      estSecrétaireDG: !!user.estSecrétaireDG
     };
     setFormData(nextForm);
     if (user.entiteId) {
@@ -811,6 +815,25 @@ const GestionUtilisateurs: React.FC = () => {
                 />
                 <div className="w-14 h-8 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:rounded-full after:h-6 after:w-6 after:transition-all after:shadow-md peer-checked:bg-green-500"></div>
               </label>
+            </div>
+
+            {/* P11 — Secrétaire du DG (autorise l'orientation des courriers) */}
+            <div className="flex items-center justify-between p-5 bg-white border-2 border-amber-200 rounded-2xl hover:border-amber-300 transition-colors">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg shadow-amber-500/25 flex items-center justify-center">
+                  <FontAwesomeIcon icon={faArrowRight} className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-900">Secrétaire du DG</p>
+                  <p className="text-sm text-slate-500">Autorise l'orientation des courriers (vers le DG ou les directeurs de directions)</p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={formData.estSecrétaireDG}
+                onChange={(e) => setFormData({ ...formData, estSecrétaireDG: e.target.checked })}
+                className="w-5 h-5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+              />
             </div>
           </div>
         );

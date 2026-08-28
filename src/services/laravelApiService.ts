@@ -1783,6 +1783,7 @@ class LaravelApiService {
     if (updates.direction !== undefined) payload.direction = updates.direction;
     if (updates.service !== undefined) payload.service = updates.service;
     if (updates.entiteId !== undefined) payload.entite_id = updates.entiteId;
+    if (updates.estSecrétaireDG !== undefined) payload.estSecrétaireDG = updates.estSecrétaireDG;
     if (updates.actif !== undefined) payload.actif = updates.actif;
 
     const res = await fetch(`${this.baseUrl}/api/users/${encodeURIComponent(id)}`, {
@@ -2211,6 +2212,7 @@ function parseUtilisateurFromApi(raw: Record<string, unknown>): Utilisateur {
     direction: u.direction != null ? String(u.direction) : undefined,
     service: u.service != null ? String(u.service) : undefined,
     entiteId: entiteId != null ? String(entiteId) : undefined,
+    estSecrétaireDG: Boolean(u.estSecrétaireDG ?? u.est_secretaire_dg ?? false),
     actif: Boolean(u.actif),
     dateCreation: new Date(),
     dateModification: new Date(),

@@ -8,6 +8,7 @@ import { directionService } from '../services/directionService';
 import { entiteOrganisationnelleService } from '../services/entiteOrganisationnelleService';
 import { entiteTypeService } from '../services/entiteTypeService';
 import { adminService } from '../services/adminService';
+import { isDGSecretary, resolveOrientationTarget, getDG, getDirecteurs, type OrientationCible } from '../utils/orientation';
 import { Courrier, Assignation, WorkflowEtape, WorkflowDecision, Role, Priorite, Utilisateur, CategorieFichier, TypeCourrier, SensCourrier, TypeEntiteOrganisationnelle, Annotation, StatutCourrier } from '../types';
 import { categorieFichierService } from '../services/categorieFichierService';
 import { laravelApiService } from '../services/laravelApiService';
@@ -230,6 +231,8 @@ const DetailCourrier: React.FC = () => {
   const accuseGenInFlight = React.useRef(false);
   const [isCourrierOrientedToDG, setIsCourrierOrientedToDG] = useState(false);
   const [isCourrierOrientedToDirector, setIsCourrierOrientedToDirector] = useState(false);
+  // P11 — repli manuel du bouton d'orientation (destinataire non reconnu) : userId choisi
+  const [orientTargetSelect, setOrientTargetSelect] = useState<string>('');
   const [showInlineAnnotation, setShowInlineAnnotation] = useState(false);
   const [newAnnotationContent, setNewAnnotationContent] = useState('');
   const [newAnnotationType, setNewAnnotationType] = useState<'MINUTE' | 'NOTE' | 'COMMENTAIRE'>('COMMENTAIRE');
@@ -2336,56 +2339,80 @@ const DetailCourrier: React.FC = () => {
                 </button>
               )}
               
-              {/* Bouton d'orientation — logique identique au menu contextuel de ListeCourriers */}
-              {(user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN) && (() => {
-                const isSecretaryDG = Boolean(
-                  user?.role === Role.SECRETAIRE && (
-                    user.direction === 'Direction Générale' ||
-                    user.direction === 'Direction Generale' ||
-                    user.direction?.toLowerCase().includes('général') ||
-                    (user.email === 'secretaire@example.com' && user.nom === 'Marie Dupont')
-                  )
-                );
+              {/* P11 — Bouton d'orientation : secrétaire du DG (drapeau estSecrétaireDG) ou super admin.
+                  La cible est déterminée par le DESTINATAIRE du courrier :
+                  Direction Générale → DG ; direction X → directeur de X.
+                  Repli : destinataire non reconnu → sélection manuelle (DG ou directeur). */}
+              {(isDGSecretary(user) || user?.role === Role.SUPER_ADMIN) && (() => {
+                if (!courrier) return null;
+                const usersList = adminService.getAllUsers();
+                const cible = resolveOrientationTarget(courrier, usersList);
+                const isDGTarget = cible?.target.role === Role.DIRECTEUR_GENERAL;
+                const already = cible
+                  ? (isDGTarget ? isCourrierOrientedToDG : isCourrierOrientedToDirector)
+                  : false;
+                const manualTarget = orientTargetSelect
+                  ? usersList.find(u => String(u.id) === String(orientTargetSelect))
+                  : null;
+                const effectiveCible: OrientationCible | null = cible || (manualTarget
+                  ? {
+                      target: manualTarget,
+                      motif: 'cible manuelle : ' + manualTarget.nom,
+                      statut: manualTarget.role === Role.DIRECTEUR_GENERAL ? 'ORIENTE_DG' : 'ORIENTE_DIRECTEUR'
+                    }
+                  : null);
+                return (
+                  <div className="inline-flex items-center gap-2">
+                    {!cible && (
+                      <select
+                        value={orientTargetSelect}
+                        onChange={(e) => setOrientTargetSelect(e.target.value)}
+                        className="bg-white/10 text-white text-sm rounded-xl border border-white/30 px-2 py-2.5 focus:outline-none max-w-[220px]"
+                        title="Destinataire non reconnu : choisir la cible"
+                      >
+                        <option value="" className="text-surface-900">Choisir la cible…</option>
+                        {(() => { const dg = getDG(usersList); return dg ? <option value={dg.id} className="text-surface-900">DG — {dg.nom}</option> : null; })()}
+                        {getDirecteurs(usersList).map(d => (
+                          <option key={d.id} value={d.id} className="text-surface-900">{d.nom} ({d.direction})</option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      disabled={already || !effectiveCible}
+                      title={already
+                        ? `Déjà orienté vers ${effectiveCible?.target.nom || ''}`
+                        : effectiveCible
+                          ? `Destinataire : ${effectiveCible.motif} → ${effectiveCible.target.nom}`
+                          : 'Destinataire non reconnu : choisissez une cible'}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/30 bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-all backdrop-blur disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={async () => {
+                        if (already || !effectiveCible) return;
+                        try {
+                          await courrierService.createAssignation({
+                            courrierId: id!,
+                            assigneA: effectiveCible.target.id,
+                            assignePar: user?.id || '',
+                            statut: 'EN_ATTENTE',
+                            instructions: `Orientation secrétariat DG (${effectiveCible.motif}) vers ${effectiveCible.target.nom}`
+                          });
+                          await courrierService.updateCourrier(id!, { statut: effectiveCible.statut as StatutCourrier }).catch(() => {});
+                          if (effectiveCible.target.role === Role.DIRECTEUR_GENERAL) {
+                            setIsCourrierOrientedToDG(true);
+                          } else {
+                            setIsCourrierOrientedToDirector(true);
+                          }
+                          const updated = await courrierService.getAssignationsByCourrier(id!);
+                          setAssignations(updated);
 
-                if (isSecretaryDG) {
-                  return (
-                    <button
-                      type="button"
-                      disabled={isCourrierOrientedToDG}
-                      title={isCourrierOrientedToDG ? 'Déjà orienté vers le DG' : 'Orienter vers le DG'}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/30 bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-all backdrop-blur disabled:opacity-50 disabled:cursor-not-allowed"
-                      onClick={async () => {
-                        if (isCourrierOrientedToDG) return;
-                        const dg = adminService.getDirecteurGeneral();
-                        if (!dg) {
-                          showAlert('Aucun Directeur Général trouvé. Vérifiez qu\'un utilisateur a le rôle "Directeur Général" et qu\'il est actif.', 'error');
-                          return;
-                        }
-                        try {
-                          await courrierService.createAssignation({
-                            courrierId: id!,
-                            assigneA: dg.id,
-                            assignePar: user.id,
-                            statut: 'EN_ATTENTE',
-                            instructions: 'Orientation secrétariat DG vers le Directeur Général'
-                          });
-                          await courrierService.updateCourrier(id!, { statut: StatutCourrier.ORIENTE_DG }).catch(() => {});
-                          setIsCourrierOrientedToDG(true);
-                          const updated = await courrierService.getAssignationsByCourrier(id!);
-                          setAssignations(updated);
-                          
-                          // Vérifier la complétion de la tâche pour le secrétaire (orientation effectuée)
-                          const completionCheck = taskCompletionService.checkTaskCompletion(user, {
-                            orientationDone: true
-                          });
+                          const completionCheck = taskCompletionService.checkTaskCompletion(user, { orientationDone: true });
                           if (completionCheck.isComplete) {
-                            // Ajouter une entrée d'orientation terminée dans la timeline
                             const orientationEntry = {
                               id: `orientation-${Date.now()}`,
                               type: 'orientation',
                               date: new Date(),
                               title: 'Orientation effectuée',
-                              description: `Courrier orienté vers le DG (${dg.nom})`,
+                              description: `Courrier orienté vers ${effectiveCible.target.nom}`,
                               status: 'TERMINE',
                               user: user,
                               assignedBy: user,
@@ -2394,19 +2421,18 @@ const DetailCourrier: React.FC = () => {
                               actionRequise: 'Orientation complétée'
                             };
                             setTasksTimeline(prev => [...prev, orientationEntry]);
-                            
-                            // Notifier la complétion de la tâche en temps réel
+
                             realTimeTaskSyncService.notifyTaskCompleted(
                               id!,
                               courrier?.numero || '',
                               user.id,
                               user.role,
-                              'Orientation vers le DG',
+                              'Orientation',
                               completionCheck.reason
                             );
-                            showAlert(`Courrier ${courrier?.numero} orienté vers le DG.\n\n${completionCheck.reason}`, 'success');
+                            showAlert(`Courrier ${courrier?.numero} orienté vers ${effectiveCible.target.nom}.\n\n${completionCheck.reason}`, 'success');
                           } else {
-                            showAlert(`Courrier ${courrier?.numero} orienté vers le DG.`, 'success');
+                            showAlert(`Courrier ${courrier?.numero} orienté vers ${effectiveCible.target.nom}.`, 'success');
                           }
                         } catch (_) {
                           showAlert('Erreur lors de l\'orientation.', 'error');
@@ -2414,84 +2440,10 @@ const DetailCourrier: React.FC = () => {
                       }}
                     >
                       <FontAwesomeIcon icon={faCompass} />
-                      {isCourrierOrientedToDG ? 'Déjà orienté vers le DG' : 'Orienter vers le DG'}
+                      {already ? 'Déjà orienté' : effectiveCible ? `Orienter vers ${effectiveCible.target.nom}` : 'Orienter…'}
                     </button>
-                  );
-                } else {
-                  return (
-                    <button
-                      type="button"
-                      disabled={isCourrierOrientedToDirector}
-                      title={isCourrierOrientedToDirector ? 'Déjà orienté vers le directeur' : 'Orienter vers le directeur'}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/30 bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-all backdrop-blur disabled:opacity-50 disabled:cursor-not-allowed"
-                      onClick={async () => {
-                        if (isCourrierOrientedToDirector) return;
-                        let director = getAppropriateDirector(user);
-                        if (!director && laravelApiService.isConfigured()) {
-                          await adminService.refreshUsersFromApi();
-                          director = getAppropriateDirector(user);
-                        }
-                        if (!director) {
-                          showAlert(`Aucun Directeur de ${user?.direction} trouvé. Vérifiez qu'un utilisateur a le rôle "Directeur" et que sa direction est "${user?.direction}" et qu'il est actif.`, 'error');
-                          return;
-                        }
-                        try {
-                          await courrierService.createAssignation({
-                            courrierId: id!,
-                            assigneA: director.id,
-                            assignePar: user.id,
-                            statut: 'EN_ATTENTE',
-                            instructions: `Orientation secrétariat${user?.direction ? ` ${user.direction}` : ''} vers le Directeur ${director.nom}`
-                          });
-                          await courrierService.updateCourrier(id!, { statut: StatutCourrier.ORIENTE_DIRECTEUR }).catch(() => {});
-                          setIsCourrierOrientedToDirector(true);
-                          const updated = await courrierService.getAssignationsByCourrier(id!);
-                          setAssignations(updated);
-                          
-                          // Vérifier la complétion de la tâche pour le secrétaire (orientation effectuée)
-                          const completionCheck = taskCompletionService.checkTaskCompletion(user, {
-                            orientationDone: true
-                          });
-                          if (completionCheck.isComplete) {
-                            // Ajouter une entrée d'orientation terminée dans la timeline
-                            const orientationEntry = {
-                              id: `orientation-${Date.now()}`,
-                              type: 'orientation',
-                              date: new Date(),
-                              title: 'Orientation effectuée',
-                              description: `Courrier orienté vers le Directeur de ${director.direction} (${director.nom})`,
-                              status: 'TERMINE',
-                              user: user,
-                              assignedBy: user,
-                              isLoading: false,
-                              priority: 'high',
-                              actionRequise: 'Orientation complétée'
-                            };
-                            setTasksTimeline(prev => [...prev, orientationEntry]);
-                            
-                            // Notifier la complétion de la tâche en temps réel
-                            realTimeTaskSyncService.notifyTaskCompleted(
-                              id!,
-                              courrier?.numero || '',
-                              user.id,
-                              user.role,
-                              `Orientation vers le directeur de ${director.direction}`,
-                              completionCheck.reason
-                            );
-                            showAlert(`Courrier ${courrier?.numero} orienté vers le directeur de ${director.direction}.\n\n${completionCheck.reason}`, 'success');
-                          } else {
-                            showAlert(`Courrier ${courrier?.numero} orienté vers le directeur de ${director.direction}.`, 'success');
-                          }
-                        } catch (_) {
-                          showAlert('Erreur lors de l\'orientation.', 'error');
-                        }
-                      }}
-                    >
-                      <FontAwesomeIcon icon={faCompass} />
-                      {isCourrierOrientedToDirector ? 'Déjà orienté vers le directeur' : 'Orienter vers le directeur'}
-                    </button>
-                  );
-                }
+                  </div>
+                );
               })()}
               
               <button
