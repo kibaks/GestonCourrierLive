@@ -3934,8 +3934,10 @@ const DetailCourrier: React.FC = () => {
         </div>
       , document.body)}
 
-      {/* Overlay du drawer */}
-      {drawerOpen && (
+      {/* Overlay du drawer — P9 : createPortal(document.body) — même famille de bug
+          que la modale annotateur (P7) : contexte de pile intermédiaire / transform
+          qui piège le positionnement fixed du drawer. */}
+      {drawerOpen && createPortal(
         <>
         <div className="fixed inset-0 z-[50000]" onClick={() => setDrawerOpen(false)} />
           <div
@@ -4100,7 +4102,8 @@ const DetailCourrier: React.FC = () => {
               })()}
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
 
       {/* CustomDialog */}

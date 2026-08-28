@@ -5006,7 +5006,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             display: flex;
             align-items: center;
             justify-content: center;
-=======
+          }
           .fiche-container {
             border: 2px solid #1f2937;
             border-radius: 4px;
@@ -5029,7 +5029,6 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             margin: 0;
             border-bottom: 2px solid #1f2937;
             width: 100%;
->>>>>>> 63f9a6d (feat: Amélioration des exports PDF/Excel/Image avec sélection de colonnes et nouveau design)
             flex-shrink: 0;
           }
           .fiche-content {
@@ -5109,7 +5108,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           .field-value {
             color: #111827;
             overflow-wrap: anywhere;
-=======
+          }
           @media print {
             body {
               padding: 0;
@@ -5117,7 +5116,6 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             .fiche-container {
               page-break-inside: avoid;
             }
->>>>>>> 63f9a6d (feat: Amélioration des exports PDF/Excel/Image avec sélection de colonnes et nouveau design)
           }
         </style>
       </head>
