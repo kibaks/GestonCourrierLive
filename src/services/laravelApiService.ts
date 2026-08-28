@@ -1078,6 +1078,7 @@ class LaravelApiService {
       direction: u.direction != null ? String(u.direction) : undefined,
       service: u.service != null ? String(u.service) : undefined,
       entiteId: entiteId != null ? String(entiteId) : undefined,
+      estSecrétaireDG: Boolean(u.estSecrétaireDG ?? u.est_secretaire_dg ?? false),
       actif: Boolean(u.actif),
       permissions: Array.isArray(u.permissions) ? u.permissions as Permission[] : [],
       dateCreation: new Date(),
