@@ -2344,7 +2344,7 @@ const DetailCourrier: React.FC = () => {
                   Direction Générale → DG ; direction X → directeur de X.
                   Repli : destinataire non reconnu → sélection manuelle (DG ou directeur). */}
               {(isDGSecretary(user) || user?.role === Role.SUPER_ADMIN) && (() => {
-                if (!courrier) return null;
+                if (!courrier || !user) return null;
                 const usersList = adminService.getAllUsers();
                 const cible = resolveOrientationTarget(courrier, usersList);
                 const isDGTarget = cible?.target.role === Role.DIRECTEUR_GENERAL;

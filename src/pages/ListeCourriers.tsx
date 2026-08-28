@@ -11420,6 +11420,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 Copier le numéro
               </button>
               {(isDGSecretary(user) || user?.role === Role.SUPER_ADMIN) && (() => {
+                if (!user) return null;
                 const c = contextMenu.courrier!;
                 const usersList = adminService.getAllUsers();
                 const cible = resolveOrientationTarget(c, usersList);
