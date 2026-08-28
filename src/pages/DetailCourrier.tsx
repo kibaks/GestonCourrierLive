@@ -100,7 +100,8 @@ import {
   faFlag,
   faBolt,
   faSave,
-  faCalendarAlt
+  faCalendarAlt,
+  faCrosshairs
 } from '@fortawesome/free-solid-svg-icons';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -195,6 +196,12 @@ const DetailCourrier: React.FC = () => {
   const [annotatorPage, setAnnotatorPage] = useState<number>(1);
   const [annotatorBlobUrl, setAnnotatorBlobUrl] = useState<string>('');
   const [annotatorLoading, setAnnotatorLoading] = useState<boolean>(false);
+  // ——— P10 : cible de l'étape workflow créée avec les annotations (DG) ———
+  // '' = cible par défaut (enregistreur du courrier) ; 'ent:<id>' = entité
+  // (direction / division / service / …) ; 'user:<id>' = utilisateur précis.
+  const [annTarget, setAnnTarget] = useState<string>('');
+  const [annTargetEntities, setAnnTargetEntities] = useState<Array<{ id: string; nom: string; type: string }>>([]);
+  const [annTargetUsers, setAnnTargetUsers] = useState<Array<{ id: string; nom: string; role: string }>>([]);
   const [dossiersFichiers, setDossiersFichiers] = useState<CategorieFichier[]>([]);
   const [expandedDossiers, setExpandedDossiers] = useState<Set<string>>(new Set());
   const [showViewFileModal, setShowViewFileModal] = useState(false);
@@ -1228,6 +1235,63 @@ const DetailCourrier: React.FC = () => {
     hasRole(Role.DIRECTEUR_GENERAL) ||
     hasRole(Role.SUPER_ADMIN);
 
+  // P10 — Chargement des cibles possibles (entités + utilisateurs) quand le DG
+  // ouvre la visionneuse. Entités : API Laravel (vrais IDs de la base) ;
+  // utilisateurs : cache admin rafraîchi depuis l'API.
+  useEffect(() => {
+    if (!annotatorFile || !canAnnotateDocument) return;
+    let alive = true;
+    laravelApiService
+      .getEntitesOrganisationnelles()
+      .then((list: any[]) => {
+        if (!alive) return;
+        setAnnTargetEntities(
+          (Array.isArray(list) ? list : [])
+            .filter((e: any) => e?.id && e?.nom && e?.type && e.type !== 'direction_generale')
+            .map((e: any) => ({ id: String(e.id), nom: String(e.nom), type: String(e.type) }))
+        );
+      })
+      .catch(() => {});
+    const loadUsers = () => {
+      if (!alive) return;
+      setAnnTargetUsers(
+        adminService
+          .getAllUsers()
+          .filter((u) => u.actif !== false && u.id !== user?.id && u.nom)
+          .map((u) => ({ id: u.id, nom: u.nom, role: u.role }))
+      );
+    };
+    adminService.refreshUsersFromApi().then(loadUsers).catch(loadUsers);
+    return () => { alive = false; };
+  }, [annotatorFile, canAnnotateDocument, user?.id]);
+
+  // P10 — groupes du sélecteur de cible (directions / divisions / services / bureaux)
+  const annTargetGroups = React.useMemo(
+    () =>
+      [
+        { key: 'direction', label: 'Direction', items: [] as { id: string; nom: string; type: string }[] },
+        { key: 'division', label: 'Division', items: [] as { id: string; nom: string; type: string }[] },
+        { key: 'service', label: 'Service / Sous-service', items: [] as { id: string; nom: string; type: string }[] },
+        { key: 'bureau', label: 'Bureau', items: [] as { id: string; nom: string; type: string }[] },
+      ].map((g) => ({
+        ...g,
+        items: annTargetEntities.filter((e) => (e.type === 'sous-service' ? 'service' : e.type) === g.key),
+      })),
+    [annTargetEntities]
+  );
+
+  // P10 — cible sélectionnée → payload (null = cible par défaut : enregistreur)
+  const buildAnnTarget = (): { type: 'ENTITE' | 'USER'; id: string; nom: string } | null => {
+    if (!annTarget) return null;
+    const [kind, id] = annTarget.split(':');
+    if (kind === 'user') {
+      const u = annTargetUsers.find((x) => x.id === id);
+      return u ? { type: 'USER', id, nom: u.nom } : null;
+    }
+    const e = annTargetEntities.find((x) => x.id === id);
+    return e ? { type: 'ENTITE', id, nom: e.nom } : null;
+  };
+
   const openDocumentAnnotator = async (fichier: CategorieFichier, page = 1) => {
     if (!fichier) return;
     setAnnotatorFile(fichier);
@@ -1250,6 +1314,7 @@ const DetailCourrier: React.FC = () => {
     if (annotatorBlobUrl) URL.revokeObjectURL(annotatorBlobUrl);
     setAnnotatorBlobUrl('');
     setAnnotatorFile(null);
+    setAnnTarget(''); // P10 : la cible ne survit pas à la session de visionneuse
   };
 
   // P8 — Accès direct : arrivée via ?vue=annotations (clic sur le courrier dans
@@ -4132,10 +4197,48 @@ const DetailCourrier: React.FC = () => {
             <FontAwesomeIcon icon={faCommentDots} className="text-indigo-400" />
             <h2 className="text-sm font-semibold">Annotations du document</h2>
             <span className="text-xs text-slate-400 truncate">{annotatorFile.nom}</span>
+            <div className="ml-auto flex items-center gap-2">
+            {/* P10 — cible de l'étape workflow (DG uniquement) : chaque annotation
+                posée dans cette session crée/réutilise une étape assignée à cette cible */}
+            {canAnnotateDocument && (
+              <label className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 border border-slate-600 px-2 py-1">
+                <FontAwesomeIcon icon={faCrosshairs} className="text-indigo-300 text-xs" />
+                <span className="text-[11px] font-semibold text-slate-300 whitespace-nowrap">Étape&nbsp;→</span>
+                <select
+                  value={annTarget}
+                  onChange={(e) => setAnnTarget(e.target.value)}
+                  className="bg-slate-800 text-slate-100 text-xs rounded-md border border-slate-600 px-1.5 py-0.5 max-w-[220px] focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  title="Cible de l'étape workflow créée avec l'annotation (direction, division, service, bureau ou utilisateur)"
+                >
+                  <option value="">Enregistreur du courrier</option>
+                  {annTargetGroups.map(
+                    (g) =>
+                      g.items.length > 0 && (
+                        <optgroup key={g.key} label={g.label}>
+                          {g.items.map((e) => (
+                            <option key={'ent:' + e.id} value={'ent:' + e.id}>
+                              {e.nom}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )
+                  )}
+                  {annTargetUsers.length > 0 && (
+                    <optgroup label="Autre — utilisateur précis">
+                      {annTargetUsers.map((u) => (
+                        <option key={'user:' + u.id} value={'user:' + u.id}>
+                          {u.nom} ({u.role})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </label>
+            )}
             <button
               type="button"
               onClick={closeDocumentAnnotator}
-              className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-200 hover:text-white hover:bg-slate-700"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-200 hover:text-white hover:bg-slate-700"
               title="Voir le détail du courrier"
             >
               <FontAwesomeIcon icon={faFileAlt} className="text-xs" />
@@ -4149,6 +4252,7 @@ const DetailCourrier: React.FC = () => {
             >
               <FontAwesomeIcon icon={faTimes} />
             </button>
+            </div>
           </div>
           <div className="flex-1 min-h-0">
             {annotatorLoading || !annotatorBlobUrl ? (
@@ -4171,6 +4275,7 @@ const DetailCourrier: React.FC = () => {
                 resolveAuthorName={(uid) => userService.getUserById(uid)?.nom || 'Utilisateur'}
                 onClose={closeDocumentAnnotator}
                 onAnnotationCreated={handleAnnotatorCreated}
+                workflowTarget={canAnnotateDocument ? buildAnnTarget() : null}
               />
             )}
           </div>

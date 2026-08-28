@@ -1344,6 +1344,9 @@ class LaravelApiService {
     kind?: 'COMMENTAIRE' | 'TRACE' | 'TEXTE' | 'TAMPOUR' | 'SIGNATURE';
     parentId?: string;
     decision?: 'FAVORABLE' | 'A_REVOIR' | 'INFO';
+    // P10 — cible de l'étape workflow créée avec l'annotation
+    // (entité : direction / division / service / … ; ou utilisateur précis).
+    workflowTarget?: { type: 'ENTITE' | 'USER'; id: string; nom?: string; typeEntite?: string };
   }): Promise<Annotation> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const res = await fetch(`${this.baseUrl}/api/annotations`, {
@@ -1363,6 +1366,8 @@ class LaravelApiService {
         kind: body.kind ?? 'COMMENTAIRE',
         parentId: body.parentId,
         decision: body.decision,
+        // P10 — cible de l'étape workflow
+        workflowTarget: body.workflowTarget ?? undefined,
       }),
     });
     if (!res.ok) {

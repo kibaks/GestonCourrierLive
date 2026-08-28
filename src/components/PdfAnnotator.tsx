@@ -165,6 +165,11 @@ export interface PdfAnnotatorProps {
   resolveAuthorName: (userId: string) => string;
   onClose: () => void;
   onAnnotationCreated: (a: Annotation) => void;
+  /**
+   * P10 — cible de l'étape workflow créée automatiquement avec chaque annotation
+   * (DG uniquement). null/absent = cible par défaut (enregistreur du courrier).
+   */
+  workflowTarget?: { type: 'ENTITE' | 'USER'; id: string; nom: string } | null;
 }
 
 const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
@@ -179,6 +184,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
   resolveAuthorName,
   onClose,
   onAnnotationCreated,
+  workflowTarget,
 }) => {
   const [scale, setScale] = useState(1.25);
   const [dims, setDims] = useState<PageDim[]>([]);
@@ -530,6 +536,8 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
       kind: partial.kind,
       decision: partial.decision,
       parentId: partial.parentId,
+      // P10 — cible de l'étape workflow (entité ou utilisateur)
+      workflowTarget: workflowTarget ?? undefined,
     });
     setSessionExtras((prev) => [...prev, created]);
     onAnnotationCreated(created);
@@ -925,6 +933,8 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
         position: pending.pos,
         kind: 'COMMENTAIRE',
         decision: draftDecision === '' ? undefined : draftDecision,
+        // P10 — cible de l'étape workflow (entité ou utilisateur)
+        workflowTarget: workflowTarget ?? undefined,
       });
       setSessionExtras((prev) => [...prev, created]);
       setPending(null);
@@ -935,7 +945,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [pending, draftContent, draftDecision, courrierId, fichierId, fileName, onAnnotationCreated]);
+  }, [pending, draftContent, draftDecision, courrierId, fichierId, fileName, onAnnotationCreated, workflowTarget]);
 
   const focusAnnotation = useCallback(
     (a: Annotation) => {
