@@ -346,7 +346,7 @@ function AppContent() {
 }
 
 function App() {
-  const [showPreloader, setShowPreloader] = useState(true);
+  const [showPreloader, setShowPreloader] = useState(() => !/^\/(login|mot-de-passe-oublie|reinitialiser-mot-de-passe|confirmer-email)(?:\/|$)/.test(window.location.pathname) && localStorage.getItem('session_locked') !== 'true');
 
   useEffect(() => {
     const hide = () => setShowPreloader(false);

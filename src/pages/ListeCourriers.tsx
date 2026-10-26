@@ -1,3 +1,4 @@
+import CourrierSummary, { CourrierCorrespondents } from '../components/courriers/CourrierSummary';
 import { courrierReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -533,6 +534,8 @@ const ListeCourriers: React.FC = () => {
       localStorage.setItem('listecourriers_folder_view_mode', folderViewMode);
     } catch { /* ignore */ }
   }, [folderViewMode]);
+
+  const [rowDetails, setRowDetails] = useState<Set<string>>(new Set());
 
   // État pour le mode d'affichage des statistiques
   const [statsView, setStatsView] = useState<'cards' | 'charts' | 'none'>(() => {
@@ -8102,6 +8105,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     return rootItems.map(item => renderItem(item, level));
   };
 
+  const toggleRowDetails = (id: string) => setRowDetails(previous => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const renderCompactSummary = (courrier: Courrier) => <CourrierSummary courrier={courrier} objet={getCourrierObjet(courrier)} status={getStatutLabel(courrier.statut)} date={getDynamicReceptionDateValue(courrier) || courrier.dateReception} urgent={(mapToPriorite(getDynamicPriorityValue(courrier)) || courrier.priorite) === Priorite.URGENTE} highPriority={(mapToPriorite(getDynamicPriorityValue(courrier)) || courrier.priorite) === Priorite.HAUTE} files={(filesCounts.get(courrier.id)?.nbFichiers || 0) + (filesCounts.get(courrier.id)?.nbCategories || 0)} onDetails={() => toggleRowDetails(courrier.id)} onFiles={() => toggleExpand(courrier.id)} onOpen={() => { const main = getMainFile(courrier); const extension = main?.split('.').pop()?.toLowerCase(); if (extension && ['pdf','jpg','jpeg','png'].includes(extension)) navigate(`/courriers/${courrier.id}?vue=annotations`); else { setSelectedCourrierForResume(courrier); setShowResumeModal(true); } }} />;
+
   const renderCourrierRow = (courrier: Courrier, index: number, level: number = 0): React.ReactNode => (
     <React.Fragment key={courrier.id}>
       <tr 
@@ -8147,7 +8153,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       <td className="px-4 py-4 whitespace-nowrap">
         {/* Checkbox déplacée à droite dans Actions */}
       </td>
-      <td className="px-6 py-4 whitespace-nowrap">
+      <td className="px-6 py-4 courrier-subject-cell">
+        {rowDetails.has(courrier.id) ? <div className="courrier-expanded-details"><div className="courrier-mobile-correspondents"><CourrierCorrespondents courrier={courrier}/></div><button type="button" className="courrier-close-details" onClick={e => { e.stopPropagation(); toggleRowDetails(courrier.id); }}>Réduire les détails ↑</button>
         <div className="flex flex-col gap-2">
           <div
             className="flex items-center gap-3"
@@ -8354,9 +8361,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             </div>
           </div>
         </div>
+      </div> : renderCompactSummary(courrier)}
       </td>
       {/* Expéditeur / Destinataire */}
-      <td className="px-6 py-4">
+      <td className="px-6 py-4 courrier-correspondents-cell">{rowDetails.has(courrier.id) ? <>
         <div className="max-w-[280px] space-y-2" title={`Expéditeur: ${courrier.expediteur || '—'} — Destinataire: ${courrier.destinataire || '—'}`}>
           <div className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-1.5 border border-blue-100">
             <div className="flex-shrink-0 w-6 h-6 rounded-md bg-blue-500 flex items-center justify-center">
@@ -8377,7 +8385,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             </div>
           </div>
         </div>
-      </td>
+      </> : <CourrierCorrespondents courrier={courrier} />}</td>
       {/* Colonne actions - clics ne doivent pas ouvrir le modal résumé */}
       <td className="px-4 py-4 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-end gap-2">
@@ -8911,7 +8919,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   }
 
   return (
-    <div className="space-y-6 animate-fadeIn" ref={tableRef}>
+    <div className="courrier-list-page space-y-4" ref={tableRef}>
       {/* Inputs fichier toujours dans le DOM pour que .click() fonctionne (import courriers + Parcourir dans le modal expandable) */}
       <input
         ref={importFileInputRef}
@@ -8925,7 +8933,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       
       {/* Header moderne avec statistiques */}
       <div className="courrier-list-hero bg-gradient-to-r from-sky-600 via-sky-500 to-cyan-500 rounded-2xl shadow-xl p-6 mb-6">
-        <div className="flex items-center justify-between gap-4 mb-6">
+        <div className="flex items-center justify-between gap-4 mb-4">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
               <FontAwesomeIcon icon={faEnvelope} className="text-white text-2xl" />
@@ -8951,7 +8959,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 type="text"
                 value={filters.search}
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                placeholder="Rechercher..."
+                placeholder="Numéro, objet, correspondant…"
+                aria-label="Rechercher dans les courriers"
                 className="w-full pl-10 pr-4 py-2.5 bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/50"
               />
             </div>
@@ -8986,6 +8995,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           </div>
         </div>
 
+        <details className="courrier-stats-disclosure"><summary><span><FontAwesomeIcon icon={faEnvelope} /> Statistiques</span><span>{stats.total} courriers · {stats.urgent} urgents <FontAwesomeIcon icon={faChevronDown}/></span></summary><div className="courrier-disclosed-content">
         {/* En-tête des statistiques avec sélecteur de vue */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-white tracking-tight">Statistiques des courriers</h2>
@@ -9038,13 +9048,14 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             </p>
           </div>
         )}
+        </div></details>
       </div>
 
       {/* Affichage en haut — z-50 pour que les dropdowns passent au-dessus du bloc titre "Courriers" */}
       <div className="relative z-50 bg-white rounded-2xl shadow-lg border border-slate-200/80 p-4 sm:p-5">
         {/* Bouton Menu / Options visible uniquement sur petits écrans — ouvre le drawer Actions */}
         <div className="flex lg:hidden items-center justify-between gap-3">
-          <span className="text-gray-600 font-medium truncate">Courriers</span>
+          <span className="text-gray-600 text-sm font-medium truncate">{stats.filtered} résultat{stats.filtered > 1 ? 's' : ''}</span>
           <button
             type="button"
             onClick={() => setShowActionsDrawer(true)}
@@ -9641,6 +9652,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         </div>
           )}
 
+      <details className="courrier-organize-disclosure"><summary><span><FontAwesomeIcon icon={faLayerGroup}/> Trier et regrouper</span><span>{groupByOptions.find(option => option.value === groupBy)?.label} · {sortOrder === 'desc' ? 'Plus récents' : 'Plus anciens'} <FontAwesomeIcon icon={faChevronDown}/></span></summary>
       {/* Barre de contrôle de tri et d'organisation - Interface professionnelle */}
       <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -9756,6 +9768,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         </div>
       </div>
 
+      </details>
       {/* Drawer des filtres */}
       {showFiltersDrawer && (
         <ModalPortal>
@@ -9997,35 +10010,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             </button>
           </div>
         )}
-        {(user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN) && selectedCourriers.size === 0 && (
-          <div className="mx-4 mt-4 mb-3 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50/50 to-amber-50 border-2 border-amber-200/60 shadow-sm hover:shadow-md transition-all duration-300">
-            <div className="px-5 py-4 flex items-start gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/30">
-                <FontAwesomeIcon icon={faArrowRight} className="w-5 h-5 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-base font-bold text-amber-900 mb-2 flex items-center gap-2">
-                  <span>Guide d'orientation des courriers</span>
-                  <span className="px-2 py-0.5 bg-amber-200 text-amber-800 text-xs font-semibold rounded-full">Info</span>
-                </h4>
-                <div className="space-y-2 text-sm text-amber-800">
-                  <p className="leading-relaxed">
-                    <strong className="text-amber-900">📋 Méthode 1 :</strong> Cochez un ou plusieurs courriers pour afficher les boutons d'orientation en haut de la liste.
-                  </p>
-                  <p className="leading-relaxed">
-                    <strong className="text-amber-900">⋮ Méthode 2 :</strong> Cliquez sur les trois points verticaux d'une ligne et choisissez l'option d'orientation.
-                  </p>
-                  <div className="mt-3 pt-3 border-t border-amber-200/60">
-                    <p className="text-xs text-amber-700 leading-relaxed">
-                      <FontAwesomeIcon icon={faInfoCircle} className="mr-1.5 text-amber-600" />
-                      <strong>Rôles :</strong> Les secrétaires de direction orientent vers leur directeur de direction • Le secrétariat DG oriente vers le Directeur Général
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {(user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN) && selectedCourriers.size === 0 && <details className="courrier-help"><summary><FontAwesomeIcon icon={faInfoCircle}/> Comment orienter un courrier ?</summary><p>Cochez les courriers concernés pour afficher les actions groupées, ou ouvrez le menu ⋮ d’une ligne pour orienter un courrier.</p><p>Les actions proposées dépendent de votre rôle et de votre direction.</p></details>}
         {/* Popout de chargement pour les opérations CRUD */}
         {(loadingOperations.insert || loadingOperations.delete || loadingOperations.update) && (
           <div className="relative">
@@ -10144,7 +10129,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="min-w-full table-fixed">
+          <table className="courrier-table min-w-full table-fixed">
             <thead className="sticky top-0 z-10">
               <tr className="bg-gradient-to-r from-blue-600 via-blue-700 to-cyan-600 border-b-4 border-blue-400/40 shadow-lg">
                 <th className="px-4 py-4 text-left w-12">
@@ -10159,8 +10144,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       <FontAwesomeIcon icon={faHashtag} className="text-sm text-white" />
                     </div>
                     <div className="flex-1">
-                      <span className="text-sm font-bold text-white uppercase tracking-wider block">Numéro</span>
-                      <span className="text-xs text-blue-100 font-normal">Référence unique</span>
+                      <span className="text-sm font-bold text-white uppercase tracking-wider block">Courrier</span>
+                      <span className="text-xs text-blue-100 font-normal">Référence et objet</span>
                     </div>
                     <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${sortBy === 'numero' ? 'bg-white/30 text-white scale-110' : 'text-blue-200 group-hover:text-white group-hover:bg-white/10'}`}>
                       <FontAwesomeIcon 
@@ -10180,7 +10165,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     </div>
                     <div className="flex-1">
                       <span className="text-sm font-bold text-white uppercase tracking-wider block">Expéditeur / Destinataire</span>
-                      <span className="text-xs text-blue-100 font-normal">Parties concernées</span>
+                      <span className="text-xs text-blue-100 font-normal">Correspondants</span>
                     </div>
                     <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${sortBy === 'expediteur' ? 'bg-white/30 text-white scale-110' : 'text-blue-200 group-hover:text-white group-hover:bg-white/10'}`}>
                       <FontAwesomeIcon 
@@ -10432,7 +10417,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               {currentCourriers.length === 0 && folderViewMode === 'liste' && (
                 <tr>
                   <td colSpan={4} className="px-6 py-12">
-                    <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-slate-200 bg-gradient-to-br from-slate-50/50 via-white to-slate-50/30 py-16 px-8 max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
+                    <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-slate-200 bg-gradient-to-br from-slate-50/50 via-white to-slate-50/30 py-16 px-8 courrier-empty-state max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
                       <div className="relative">
                         <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center shadow-lg shadow-slate-500/20">
                           <FontAwesomeIcon icon={faEnvelopeOpen} className="w-10 h-10 text-white" />
@@ -10579,41 +10564,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       </td>
                     </tr>
                   )}
-                  {courrierFolders.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12">
-                        <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-blue-200 bg-gradient-to-br from-blue-50/50 via-white to-cyan-50/30 py-16 px-8 max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
-                          <div className="relative">
-                            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/30 animate-pulse">
-                              <FontAwesomeIcon icon={faFolder} className="w-10 h-10 text-white" />
-                            </div>
-                            <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center shadow-md">
-                              <FontAwesomeIcon icon={faPlus} className="w-3 h-3 text-white" />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <p className="text-xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
-                              Aucune catégorie pour le moment
-                            </p>
-                            <p className="text-sm text-slate-600 leading-relaxed max-w-sm">
-                              Organisez vos courriers en créant des catégories thématiques pour une meilleure gestion
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => setShowFolderModal(true)}
-                            className="mt-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 transition-all duration-300 flex items-center gap-2"
-                          >
-                            <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
-                            Créer ma première catégorie
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
+                  {courrierFolders.length === 0 && filteredCourriers.length > 0 && <tr><td colSpan={4} className="px-5 py-3"><div className="courrier-folder-hint"><span>Classez vos courriers dans des dossiers.</span><button type="button" onClick={() => setShowFolderModal(true)}><FontAwesomeIcon icon={faPlus}/> Créer un dossier</button></div></td></tr>}
                   {filteredCourriers.length === 0 && (
                     <tr>
                       <td colSpan={4} className="px-6 py-12">
-                        <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-slate-200 bg-gradient-to-br from-slate-50/50 via-white to-slate-50/30 py-16 px-8 max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
+                        <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-slate-200 bg-gradient-to-br from-slate-50/50 via-white to-slate-50/30 py-16 px-8 courrier-empty-state max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
                           <div className="relative">
                             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center shadow-lg shadow-slate-500/20">
                               <FontAwesomeIcon icon={faEnvelopeOpen} className="w-10 h-10 text-white" />
@@ -10797,7 +10752,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   <td className="px-4 py-4 whitespace-nowrap">
                     {/* Checkbox déplacée à droite dans Actions */}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-6 py-4 courrier-subject-cell">
+        {rowDetails.has(courrier.id) ? <div className="courrier-expanded-details"><div className="courrier-mobile-correspondents"><CourrierCorrespondents courrier={courrier}/></div><button type="button" className="courrier-close-details" onClick={e => { e.stopPropagation(); toggleRowDetails(courrier.id); }}>Réduire les détails ↑</button>
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-50 transition-colors">
@@ -11000,9 +10956,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         </div>
                       </div>
                     </div>
-                  </td>
+                  </div> : renderCompactSummary(courrier)}
+      </td>
                   {/* Expéditeur / Destinataire */}
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 courrier-correspondents-cell">{rowDetails.has(courrier.id) ? <>
                     <div className="max-w-[280px] space-y-2" title={`Expéditeur: ${courrier.expediteur || '—'} — Destinataire: ${courrier.destinataire || '—'}`}>
                       <div className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-1.5 border border-blue-100">
                         <div className="flex-shrink-0 w-6 h-6 rounded-md bg-blue-500 flex items-center justify-center">
@@ -11023,7 +10980,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         </div>
                       </div>
                     </div>
-                  </td>
+                  </> : <CourrierCorrespondents courrier={courrier} />}</td>
                   {/* Colonne actions - clics ne doivent pas ouvrir le modal résumé */}
                   <td className="px-4 py-4 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-2">

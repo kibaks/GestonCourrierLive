@@ -8,3 +8,18 @@
 /* Keep the complete form visible on standard laptop displays. */
 @media(min-width:701px) and (max-height:800px){.auth-scene{padding-top:22px;padding-bottom:16px}.auth-frame{padding-block:24px}.auth-panel{padding:28px 34px}.auth-panel-icon{height:40px;width:40px;font-size:18px;margin-bottom:16px}.auth-presentation h2{font-size:37px}.auth-illustration{margin-top:20px;min-height:180px}.auth-document{padding:18px}.auth-form{margin-top:20px}.auth-form fieldset{gap:16px}.auth-bottom-note{margin-top:20px;padding-top:16px}.auth-description{line-height:1.75;margin-top:10px}.auth-identity{margin-top:16px}.auth-secondary-actions{margin-top:12px;gap:0}.auth-secondary-actions button{min-height:36px}}
 .auth-label{font-size:12px}.auth-input-wrap input{font-size:14px}.auth-submit{font-size:13px}
+/* Authentication stays still; motion belongs to the workspace. */
+.auth-scene,.auth-scene *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+/* Gentle entry motion for authentication, including keyboard-friendly static controls. */
+@media(prefers-reduced-motion:no-preference){
+.auth-scene .auth-panel{animation:auth-card-enter .45s cubic-bezier(.2,.7,.2,1) both!important}
+.auth-scene .auth-presentation{animation:auth-story-enter .55s ease-out both!important}
+.auth-scene .auth-document{animation:auth-document-enter .65s cubic-bezier(.2,.7,.2,1) both!important}
+.auth-scene .auth-submit{transition:background-color .18s,box-shadow .18s,transform .18s!important}
+.auth-scene .auth-submit:hover{transform:translateY(-1px);box-shadow:0 9px 20px #0284c72b}
+.auth-scene .auth-submit:active{transform:translateY(0)}
+.auth-scene .auth-input-wrap{transition:border-color .18s,box-shadow .18s!important}
+}
+@keyframes auth-card-enter{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes auth-story-enter{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
+@keyframes auth-document-enter{from{opacity:0;transform:translateY(8px) rotate(-2deg)}to{opacity:1;transform:translateY(0) rotate(-4deg)}}
