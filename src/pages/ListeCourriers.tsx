@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import ReactDOM from 'react-dom';
@@ -455,7 +456,7 @@ const ListeCourriers: React.FC = () => {
     statut: '',
     type: '',
     sens: '',
-    search: '',
+    search: searchParams.get('q') || '',
     priorite: '',
     direction: '',
     service: '',
@@ -487,14 +488,16 @@ const ListeCourriers: React.FC = () => {
   useEffect(() => {
     const urlSens = searchParams.get('sens');
     const urlType = searchParams.get('type');
-    if (urlSens || urlType) {
+    const query = searchParams.get('q');
+    if (urlSens || urlType || query !== null) {
       setFilters(prev => ({
         ...prev,
+        search: query ?? prev.search,
         sens: urlSens || prev.sens,
         type: urlType || prev.type
       }));
     }
-  }, []); // Seulement au montage
+  }, [searchParams.get('q')]); // Recherche globale synchronisée
 
   // Mettre à jour l'URL lorsque les filtres sens ou type changent
   useEffect(() => {
@@ -535,7 +538,7 @@ const ListeCourriers: React.FC = () => {
   const [statsView, setStatsView] = useState<'cards' | 'charts' | 'none'>(() => {
     try {
       const saved = localStorage.getItem('listecourriers_stats_view');
-      if (saved === 'cards' || saved === 'charts' || saved === 'none') return saved;
+      if (saved === 'cards' || saved === 'charts') return saved;
     } catch { /* ignore */ }
     return 'charts'; // Par défaut: graphiques
   });
@@ -3040,6 +3043,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           const courrierData: any = {
             id: c.id,
             numero: c.numero,
+            numeroOrganisationnel: c.numeroOrganisationnel,
+            entiteNumerotationId: c.entiteNumerotationId,
             type: c.type,
             sens: c.sens,
             dateReception: c.dateReception instanceof Date ? c.dateReception.toISOString() : c.dateReception,
@@ -4805,7 +4810,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         let badgeColor: string | undefined;
         
         if (col.key === 'numero') {
-          cellValue = `#${courrier.numero}`;
+          cellValue = `#${courrierReferences(courrier)}`;
           pdf.setFont('helvetica', 'bold');
         } else if (col.key === 'statut') {
           cellValue = courrier.statut;
@@ -5193,7 +5198,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     let badgeColor: string | undefined;
                     
                     if (col.key === 'numero') {
-                      cellContent = `<strong>#${escapeHtml(courrier.numero)}</strong>`;
+                      cellContent = `<strong>#${escapeHtml(courrierReferences(courrier))}</strong>`;
                     } else if (col.key === 'statut') {
                       cellContent = escapeHtml(courrier.statut);
                       badgeColor = statutColor;
@@ -5571,7 +5576,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           let cellValue: any = '';
           
           if (col.key === 'numero') {
-            cellValue = `#${courrier.numero}`;
+            cellValue = `#${courrierReferences(courrier)}`;
           } else if (col.key === 'statut') {
             cellValue = courrier.statut;
           } else if (col.key === 'priorite') {
@@ -5972,7 +5977,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     if (debouncedSearch) {
       const searchLower = debouncedSearch.toLowerCase();
       filtered = filtered.filter(c =>
-        (c.numero || '').toLowerCase().includes(searchLower) ||
+        courrierReferences(c).toLowerCase().includes(searchLower) ||
         (c.objet || '').toLowerCase().includes(searchLower) ||
         (c.expediteur || '').toLowerCase().includes(searchLower) ||
         (c.destinataire || '').toLowerCase().includes(searchLower) ||
@@ -7240,7 +7245,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     if (debouncedRegistreSearch) {
       const searchLower = debouncedRegistreSearch.toLowerCase();
       filteredCourriers = filteredCourriers.filter(c =>
-        c.numero.toLowerCase().includes(searchLower) ||
+        courrierReferences(c).toLowerCase().includes(searchLower) ||
         c.objet.toLowerCase().includes(searchLower) ||
         (c.expediteur && c.expediteur.toLowerCase().includes(searchLower)) ||
         (c.destinataire && c.destinataire.toLowerCase().includes(searchLower))
@@ -7393,7 +7398,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       let maxWidth = doc.getTextWidth(header) + 6;
       filteredCourriers.forEach(c => {
         let value = '-';
-        if (key === 'numero') value = c.numero || '-';
+        if (key === 'numero') value = courrierReferences(c) || '-';
         else if (key === 'dateReception') value = exportSettingsService.formatDate(c.dateReception);
         else if (key === 'annotationDG') {
           const annotContent = dgAnnotationMap.get(c.id);
@@ -7499,7 +7504,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       let xPos = startX;
       colKeys.forEach((key, i) => {
         let value = '-';
-        if (key === 'numero') value = c.numero || '-';
+        if (key === 'numero') value = courrierReferences(c) || '-';
         else if (key === 'dateReception') value = exportSettingsService.formatDate(c.dateReception);
         else if (key === 'annotationDG') {
           const annotContent = dgAnnotationMap.get(c.id);
@@ -8172,7 +8177,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-surface-900">{courrier.numero}</span>
+                <span className="text-sm font-bold text-surface-900">{courrierReferences(courrier)}</span>
                 {isNouveauCourrier(courrier.createdAt) && (
                   <span
                     className="px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wide"
@@ -8384,7 +8389,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               onChange={(e) => handleSelectCourrier(courrier.id, e)}
               onClick={(e) => e.stopPropagation()}
               className="w-4 h-4 text-blue-600 border-2 border-surface-300 rounded focus:ring-blue-500 focus:ring-offset-0 transition-colors cursor-pointer"
-              aria-label={`Sélectionner le courrier ${courrier.numero}`}
+              aria-label={`Sélectionner le courrier ${courrierReferences(courrier)}`}
             />
           </div>
           <button
@@ -8919,7 +8924,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       />
       
       {/* Header moderne avec statistiques */}
-      <div className="bg-gradient-to-r from-blue-500 via-blue-600 to-cyan-500 rounded-2xl shadow-xl p-6 mb-6">
+      <div className="courrier-list-hero bg-gradient-to-r from-sky-600 via-sky-500 to-cyan-500 rounded-2xl shadow-xl p-6 mb-6">
         <div className="flex items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
@@ -10819,7 +10824,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-slate-900">{courrier.numero}</span>
+                            <span className="text-sm font-bold text-slate-900">{courrierReferences(courrier)}</span>
                             {isNouveauCourrier(courrier.createdAt) && (
                               <span
                                 className="px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wide flex-shrink-0"
@@ -11030,7 +11035,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           onChange={(e) => handleSelectCourrier(courrier.id, e)}
                           onClick={(e) => e.stopPropagation()}
                           className="w-4 h-4 text-blue-600 border-2 border-slate-300 rounded focus:ring-2 focus:ring-blue-500/30 cursor-pointer"
-                          aria-label={`Sélectionner le courrier ${courrier.numero}`}
+                          aria-label={`Sélectionner le courrier ${courrierReferences(courrier)}`}
                         />
                       </div>
                       <button
@@ -11476,9 +11481,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                             'Orientation',
                             completionCheck.reason
                           );
-                          showAlert(`Courrier ${c.numero} orienté vers ${cible.target.nom}.\n\n${completionCheck.reason}`, 'success');
+                          showAlert(`Courrier ${courrierReferences(c)} orienté vers ${cible.target.nom}.\n\n${completionCheck.reason}`, 'success');
                         } else {
-                          showAlert(`Courrier ${c.numero} orienté vers ${cible.target.nom}.`, 'success');
+                          showAlert(`Courrier ${courrierReferences(c)} orienté vers ${cible.target.nom}.`, 'success');
                         }
                         loadCourriers();
                       } catch (_) {
@@ -12115,7 +12120,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       return (
                         <div key={courrier.id} className="px-3 py-2 flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="text-xs font-semibold text-surface-800 truncate">{courrier.numero}</div>
+                            <div className="text-xs font-semibold text-surface-800 truncate">{courrierReferences(courrier)}</div>
                             <div className="text-[11px] text-surface-500 truncate">Destinataire : {courrier.destinataire || 'non renseigné'}</div>
                           </div>
                           {already ? (
@@ -15812,7 +15817,7 @@ const AssignCourrierForm: React.FC<{
             <ul className="space-y-1">
               <li>
                 <span className="text-gray-500">Courrier :</span>{' '}
-                <span className="font-medium">{courrier.numero}</span> - {(courrier.objet || '').replace(new RegExp('<[^>]*>', 'g'), '')}
+                <span className="font-medium">{courrierReferences(courrier)}</span> - {(courrier.objet || '').replace(new RegExp('<[^>]*>', 'g'), '')}
               </li>
               <li>
                 <span className="text-gray-500">Mode :</span>{' '}

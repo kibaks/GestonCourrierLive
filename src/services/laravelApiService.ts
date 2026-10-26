@@ -1100,6 +1100,7 @@ class LaravelApiService {
     });
     if (!res.ok) return null;
     const data = await res.json();
+    if (data?.twoFactorRequired && data?.challenge) throw Object.assign(new Error('Code de sécurité requis.'), { challenge: data.challenge });
     const token = data?.token;
     return typeof token === 'string' ? token : null;
   }

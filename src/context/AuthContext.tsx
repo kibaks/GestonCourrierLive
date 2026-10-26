@@ -6,6 +6,8 @@ import { formulaireCourrierService } from '../services/formulaireCourrierService
 
 interface AuthContextType {
   user: Utilisateur | null;
+  refreshProfile: (profile: Utilisateur) => void;
+  completeSecureLogin: (token: string) => Promise<void>;
   authReady: boolean;
   locked: boolean;
   login: (email: string, password: string) => Promise<boolean>;
@@ -153,8 +155,22 @@ const initializeDefaultUsers = () => {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<Utilisateur | null>(null);
+  const refreshProfile = (profile: Utilisateur) => {
+    setUser(current => {
+      if (!current || current.id !== profile.id) return current;
+      const updated = { ...current, nom: profile.nom, photoUrl: profile.photoUrl };
+      localStorage.setItem('user', JSON.stringify(updated));
+      return updated;
+    });
+  };
   const [authReady, setAuthReady] = useState(false);
   const [locked, setLocked] = useState(false);
+  const completeSecureLogin = async (token: string) => {
+    laravelApiService.setAuthToken(token);
+    const me = await laravelApiService.getMe();
+    if (!me) throw new Error('Connexion impossible. Veuillez réessayer.');
+    setUser(me); setLocked(false); localStorage.setItem('user', JSON.stringify(me));
+  };
 
   useEffect(() => {
     // Utilisateurs par défaut uniquement en mode local (pas d'API) ; sinon la base Laravel fait foi
@@ -258,15 +274,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string): Promise<boolean> => {
     if (laravelApiService.isConfigured()) {
-      await Promise.all([adminService.refreshUsersFromApi(), adminService.refreshRolesFromApi()]);
-      let token = await laravelApiService.login(email, password);
-      if (!token) {
-        const allUsers = adminService.getAllUsers();
-        const foundUser = allUsers.find(u => u.email === email && u.actif);
-        if (foundUser && password === 'password') {
-          token = await laravelApiService.getTokenByEmail(foundUser.email);
-        }
-      }
+      const token = await laravelApiService.login(email, password);
       if (token) {
         laravelApiService.setAuthToken(token);
         const me = await laravelApiService.getMe();
@@ -416,12 +424,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const hasPermission = (permission: Permission): boolean => {
     if (!user) return false;
     // Le super admin et le directeur général ont toutes les permissions
-    if (user.role === Role.SUPER_ADMIN || user.role === Role.DIRECTEUR_GENERAL) return true;
-    
-    // Vérifier les permissions personnalisées de l'utilisateur
-    if (user.permissions && user.permissions.includes(permission)) {
-      return true;
-    }
+    if (Array.isArray(user.permissions)) return user.permissions.includes(permission);
     
     // Vérifier les permissions du rôle
     const roles = adminService.getAllRoles();
@@ -437,6 +440,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         user,
+        refreshProfile,
+        completeSecureLogin,
         authReady,
         locked,
         login,

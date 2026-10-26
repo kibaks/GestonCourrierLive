@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StatutCourrier, Priorite, TypeCourrier, SensCourrier } from '../types';
@@ -284,7 +285,7 @@ const ImpressionCourriers: React.FC = () => {
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 18, fontWeight: 700, color: '#111827' }}>#{safeToString(courrier.numero)}</span>
+                        <span style={{ fontSize: 18, fontWeight: 700, color: '#111827' }}>#{safeToString(courrierReferences(courrier))}</span>
                         <span style={{ padding: '4px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'white', background: statutColor }}>
                           {safeToString(courrier.statut)}
                         </span>

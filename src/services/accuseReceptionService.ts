@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 /**
  * Service de génération de l'accusé de réception (PDF tamponné).
  * Reprend le document scanné/joint et appose un cachet "ACCUSE DE RECU" sur la 1ère page.
@@ -34,6 +35,7 @@ function drawStampOnCanvas(
   data: {
     date: string;
     numero: string;
+    numeroOrganisationnel?: string | null;
     annexes: string;
     par: string;
     expediteur: string;
@@ -103,7 +105,7 @@ function drawStampOnCanvas(
   ctx.textBaseline = 'top';
 
   const titleSize = Math.max(10, h * 0.12);
-  const lineSize = Math.max(8, h * 0.09);
+  const lineSize = Math.max(7, h * (data.numeroOrganisationnel ? 0.065 : 0.075));
   const paddingX = w * 0.05;
   const paddingY = h * 0.08;
 
@@ -123,7 +125,7 @@ function drawStampOnCanvas(
     ctx.font = `bold ${lineSize}px Arial, sans-serif`;
     ctx.fillText(label, labelX, lineY);
     ctx.font = `${lineSize}px Arial, sans-serif`;
-    ctx.fillText(value, valueX, lineY);
+    ctx.fillText(value, valueX, lineY, w - (valueX - x) - paddingX);
     lineY += lineGap;
   };
 
@@ -135,7 +137,8 @@ function drawStampOnCanvas(
     drawLine('ORGANISME :', config.organisation);
   }
   drawLine('LE :', data.date);
-  drawLine('SOUS N° :', data.numero);
+  drawLine('N° SYSTÈME :', data.numero);
+  if (data.numeroOrganisationnel) drawLine('N° ORG. :', data.numeroOrganisationnel);
   if (data.expediteur) drawLine('EXPEDITEUR :', truncate(data.expediteur));
   if (data.destinataire) drawLine('DESTINATAIRE :', truncate(data.destinataire));
   drawLine('ANNEXES :', data.annexes);
@@ -212,6 +215,7 @@ async function createCoverPage(
   drawStampOnCanvas(ctx, cachetConfig, {
     date: new Date().toLocaleDateString('fr-FR'),
     numero: courrier.numero,
+    numeroOrganisationnel: courrier.numeroOrganisationnel,
     annexes: String(annexesCount),
     par: user.nom || '',
     expediteur: courrier.expediteur || '',
@@ -230,7 +234,7 @@ async function createCoverPage(
   const lines = [
     'ACCUSE DE RECEPTION',
     '',
-    `Reference : ${courrier.numero}`,
+    `Reference : ${courrierReferences(courrier)}`,
     `Objet : ${(courrier.objet || '').replace(/<[^>]*>/g, '')}`,
     `Expediteur : ${courrier.expediteur || 'Non specifie'}`,
     `Destinataire : ${courrier.destinataire || 'Non specifie'}`,
@@ -281,6 +285,7 @@ export async function generateAccusePdf(
   const stampData = {
     date: new Date().toLocaleDateString('fr-FR'),
     numero: courrier.numero,
+    numeroOrganisationnel: courrier.numeroOrganisationnel,
     annexes: String(annexesCount),
     par: user.nom || '',
     expediteur: courrier.expediteur || '',

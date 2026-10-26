@@ -1,3 +1,4 @@
+import CourrierNumberingFields from '../components/CourrierNumberingFields';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
@@ -113,6 +114,7 @@ const EnregistrerCourrierListe: React.FC = () => {
     return defaults;
   };
 
+  const [numberingEntityId, setNumberingEntityId] = useState('');
   const [rows, setRows] = useState<RowData[]>(() => { const d = getDefaults(); return [makeRow(d), makeRow(d)]; });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggleExpand = (id: string) => setExpanded(p => ({ ...p, [id]: !p[id] }));
@@ -804,6 +806,7 @@ const EnregistrerCourrierListe: React.FC = () => {
           delete (extraFieldsCopy as any)['NUMERO'];
         }
         const data: Omit<Courrier, 'id' | 'numero' | 'dateEnregistrement' | 'createdAt' | 'updatedAt'> & { numero?: string } = {
+          entiteNumerotationId: numberingEntityId || null,
           type: r.type, sens: r.sens, dateReception: new Date(r.dateReception),
           expediteur: r.expediteur.trim(), destinataire: r.destinataire.trim(),
           objet: r.objet.trim(), direction: r.direction || undefined,
@@ -978,6 +981,7 @@ const EnregistrerCourrierListe: React.FC = () => {
           : Priorite.NORMALE;
 
         const courrierData = {
+          entiteNumerotationId: numberingEntityId || null,
           type: r.type, sens: r.sens, dateReception: new Date(r.dateReception),
           expediteur: r.expediteur.trim(), destinataire: r.destinataire.trim(),
           objet: r.objet.trim(), priorite: resolvedPriorite, enregistrePar: user.id,
@@ -1562,6 +1566,7 @@ const EnregistrerCourrierListe: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-surface-50 to-white">
+      <CourrierNumberingFields value={numberingEntityId} onChange={setNumberingEntityId} />
       {/* Header */}
       <div className="bg-white/95 backdrop-blur border-b border-surface-200 shadow-sm sticky top-0 z-20">
         <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
