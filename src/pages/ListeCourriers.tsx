@@ -8992,6 +8992,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 <span className="hidden sm:inline">Arborescence</span>
               </button>
             </div>
+            <button type="button" className="courrier-mobile-actions" onClick={() => setShowActionsDrawer(true)}><FontAwesomeIcon icon={faBars}/> Actions</button>
           </div>
         </div>
 
@@ -10621,7 +10622,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       </td>
                     </tr>
                   )}
-                  <tr className="bg-surface-50/70">
+                  <tr className="courrier-root-folder bg-surface-50/70">
                     <td colSpan={4} className="px-6 py-2">
                       <div
                         className={`flex items-center justify-between rounded-lg border transition-colors ${
@@ -10665,7 +10666,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                             {rootCourriers.length} courrier{rootCourriers.length > 1 ? 's' : ''}
                           </span>
                         </div>
-                        <div className="text-xs text-surface-400 px-3">Déposez ici pour retirer de la catégorie</div>
+                        <div className="courrier-drop-hint text-xs text-surface-400 px-3">Déposez ici pour retirer de la catégorie</div>
                       </div>
                     </td>
                   </tr>
