@@ -211,6 +211,10 @@ export interface CategorieCourrier {
 export interface Courrier {
   id: string;
   numero: string;
+  numeroSysteme?: string;
+  numeroOrganisationnel?: string | null;
+  entiteNumerotationId?: string | null;
+  numerotationSnapshot?: Record<string, unknown> | null;
   type: TypeCourrier;
   /** Entrant ou sortant — utilisé pour l'affichage et le formulaire. */
   sens?: SensCourrier;

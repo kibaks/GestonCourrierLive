@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
@@ -877,7 +878,7 @@ const DetailCourrier: React.FC = () => {
           type: 'enregistrement',
           date: (courrier as any).dateCreation || (courrier as any).dateCreation || new Date(),
           title: 'Enregistrement du courrier',
-          description: `Courrier ${courrier.numero} enregistré${courrier.objet ? ` - ${courrier.objet}` : ''}`,
+          description: `Courrier ${courrierReferences(courrier)} enregistré${courrier.objet ? ` - ${courrier.objet}` : ''}`,
           status: 'TERMINE',
           user: createdByUser,
           isLoading: false,
@@ -1644,7 +1645,7 @@ const DetailCourrier: React.FC = () => {
           userId: c.enregistrePar,
           type: 'courrier',
           title: 'Accusé de réception disponible',
-          message: `Votre courrier "${c.numero}" a été reçu par le destinataire. L'accusé de réception est disponible.`,
+          message: `Votre courrier "${courrierReferences(c)}" a été reçu par le destinataire. L'accusé de réception est disponible.`,
           relatedId: c.id,
           relatedType: 'courrier',
           priority: 'normal',
@@ -2256,7 +2257,7 @@ const DetailCourrier: React.FC = () => {
               Liste des courriers
             </Link>
             <FontAwesomeIcon icon={faChevronRight} className="text-slate-500 text-xs" />
-            <span className="text-white font-semibold">Courrier {courrier.numero}</span>
+            <span className="text-white font-semibold">Courrier {courrierReferences(courrier)}</span>
           </nav>
           {/* Direction / Service / Sous-service concernés */}
           {(courrier.direction || courrier.service || (courrier.extraFields as Record<string, string>)?.['sousService']) && (
@@ -2295,7 +2296,7 @@ const DetailCourrier: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                  Courrier {courrier.numero}
+                  Courrier {courrierReferences(courrier)}
                 </h1>
                 <p className="mt-1 text-slate-300 text-sm sm:text-base line-clamp-2">
                   {courrier.objet?.replace(/<[^>]*>/g, '') || 'Détail du courrier'}
@@ -4039,7 +4040,7 @@ const DetailCourrier: React.FC = () => {
                 let filtered = q
                   ? listCourriers.filter(
                       (c) =>
-                        c.numero.toLowerCase().includes(q) ||
+                        courrierReferences(c).toLowerCase().includes(q) ||
                         (c.objet || '').toLowerCase().includes(q) ||
                         (c.expediteur || '').toLowerCase().includes(q) ||
                         (c.destinataire || '').toLowerCase().includes(q) ||
@@ -4096,7 +4097,7 @@ const DetailCourrier: React.FC = () => {
                             }`}
                           >
                             <div className="flex items-center justify-between gap-2 mb-1">
-                              <span className="font-semibold text-slate-800 truncate">{c.numero}</span>
+                              <span className="font-semibold text-slate-800 truncate">{courrierReferences(c)}</span>
                               <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-lg border ${getStatutBadge(c.statut)}`}>
                                 {c.statut.replace(/_/g, ' ')}
                               </span>

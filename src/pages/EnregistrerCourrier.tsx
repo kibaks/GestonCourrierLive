@@ -1,3 +1,5 @@
+import { profileRequest } from '../services/profileService';
+import CourrierNumberingFields from '../components/CourrierNumberingFields';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -296,6 +298,16 @@ const EnregistrerCourrier: React.FC = () => {
     };
   });
   
+  const [pendingDraft, setPendingDraft] = useState<{ payload: { formData: CourrierFormData; currentStep: number; selectedFolderId?: string }; savedAt: string } | null>(null);
+  const [draftSaving, setDraftSaving] = useState(false);
+  useEffect(() => {
+    if (!user?.id || isEditMode) return;
+    const controller = new AbortController();
+    profileRequest<{ payload: { formData: CourrierFormData; currentStep: number; selectedFolderId?: string }; savedAt: string }>('workspace/draft', undefined, 'GET', controller.signal)
+      .then(draft => { if (draft?.payload) setPendingDraft(draft); }).catch(() => {});
+    return () => controller.abort();
+  }, [user?.id, isEditMode]);
+
   // Étapes du formulaire
   const steps = [
     { id: 1, title: 'Type', description: 'Type et classement' },
@@ -817,19 +829,20 @@ const EnregistrerCourrier: React.FC = () => {
     setDialog(prev => ({ ...prev, isOpen: false }));
   };
   
-  const saveDraft = () => {
+  const saveDraft = async () => {
+    if (!user?.id || draftSaving) return;
+    setDraftSaving(true);
+    const payload = { formData, currentStep, selectedFolderId };
     try {
-      const payload = {
-        formData,
-        currentStep,
-        selectedFolderId,
-        savedAt: Date.now(),
-      };
-      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
-      showAlert('Brouillon sauvegardé', 'success');
+      const draft = await profileRequest<{payload: typeof payload; savedAt: string}>('workspace/draft', {payload}, 'PUT');
+      setPendingDraft(draft);
+      showAlert('Brouillon enregistré sur le serveur. Les pièces jointes devront être sélectionnées à nouveau à la reprise.', 'success');
     } catch {
-      // localStorage full ou indisponible
-    }
+      try {
+        localStorage.setItem(`${DRAFT_STORAGE_KEY}_${user.id}`, JSON.stringify({...payload, savedAt:Date.now()}));
+        showAlert('Serveur indisponible. Une copie est enregistrée uniquement sur cet appareil pour votre compte.', 'warning');
+      } catch { showAlert('Le brouillon n’a pas pu être enregistré. Conservez votre saisie et réessayez.', 'error'); }
+    } finally { setDraftSaving(false); }
   };
   
   const nextStep = () => {
@@ -1092,7 +1105,7 @@ const EnregistrerCourrier: React.FC = () => {
 
       // Construire extraFields depuis les champs du formulaire (hors colonnes directes API)
       const directColumns = new Set(['sens', 'type', 'dateReception', 'expediteur', 'destinataire', 'objet',
-        'direction', 'service', 'sousService', 'priorite', 'statut', 'enregistrePar', 'numero', 'id',
+        'entiteNumerotationId', 'direction', 'service', 'sousService', 'priorite', 'statut', 'enregistrePar', 'numero', 'id',
         'files', 'folderId', 'createdAt', 'updatedAt', 'dateModification', 'modifiePar',
         'creerWorkflow', 'notifierDG', 'notifierResponsable', 'instructionsWorkflow', 'prioriteWorkflow', 'contenuCourrier']);
       const extraFieldsResolved: Record<string, any> = {};
@@ -1299,6 +1312,7 @@ const EnregistrerCourrier: React.FC = () => {
             : 'Courrier enregistré avec succès',
         'success'
       );
+      if (!isEditMode) { void profileRequest('workspace/draft', {}, 'DELETE').catch(() => {}); if (user?.id) localStorage.removeItem(`${DRAFT_STORAGE_KEY}_${user.id}`); }
       setTimeout(() => navigate('/courriers'), 300);
     } catch (error) {
       showAlert(
@@ -1444,6 +1458,8 @@ const EnregistrerCourrier: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-100">
+      {pendingDraft && !isEditMode && <div className="mx-4 my-3 rounded-xl border border-blue-100 bg-blue-50 p-4 flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-blue-900">Un brouillon est disponible</p><p className="text-xs text-blue-800 mt-1">Enregistré le {new Date(pendingDraft.savedAt).toLocaleString('fr-CD')}. Les pièces jointes ne sont pas conservées dans le brouillon.</p></div><button type="button" className="workspace-button secondary" onClick={() => { setFormData(pendingDraft.payload.formData); setCurrentStep(pendingDraft.payload.currentStep); setSelectedFolderId(pendingDraft.payload.selectedFolderId || ''); setPendingDraft(null); }}>Reprendre le brouillon</button></div>}
+      <div className="max-w-7xl mx-auto p-4"><CourrierNumberingFields value={formData.entiteNumerotationId || ''} onChange={id => setFormData(prev => ({ ...prev, entiteNumerotationId: id }))} existing={isEditMode && courrierEnEdition ? courrierEnEdition : undefined} /></div>
       {/* Header professionnel */}
       <div className="bg-white border-b border-surface-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -1542,7 +1558,7 @@ const EnregistrerCourrier: React.FC = () => {
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Barre de progression professionnelle */}
-        <div className="bg-white rounded-2xl shadow-card border border-surface-200 p-8 mb-8">
+        <div className="courrier-progress bg-white rounded-2xl shadow-card border border-surface-200 p-5 mb-5">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -1558,11 +1574,11 @@ const EnregistrerCourrier: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => saveDraft()}
+              disabled={draftSaving} onClick={() => void saveDraft()}
               className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl hover:from-amber-600 hover:to-orange-600 font-medium transition-all shadow-md flex items-center gap-2"
             >
               <FontAwesomeIcon icon={faSave} />
-              Sauvegarder
+              Enregistrer le brouillon
             </button>
           </div>
 
@@ -1650,6 +1666,8 @@ const EnregistrerCourrier: React.FC = () => {
                   </label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div
+                      role="button" tabIndex={0} aria-pressed={formData.sens === SensCourrier.ENTRANT}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } }}
                       onClick={() => setFormData(prev => ({ ...prev, sens: SensCourrier.ENTRANT }))}
                       className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 ${
                         formData.sens === SensCourrier.ENTRANT
@@ -1686,6 +1704,8 @@ const EnregistrerCourrier: React.FC = () => {
                     </div>
 
                     <div
+                      role="button" tabIndex={0} aria-pressed={formData.sens === SensCourrier.SORTANT}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } }}
                       onClick={() => setFormData(prev => ({ ...prev, sens: SensCourrier.SORTANT }))}
                       className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 ${
                         formData.sens === SensCourrier.SORTANT
@@ -1733,6 +1753,8 @@ const EnregistrerCourrier: React.FC = () => {
                   </label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div
+                      role="button" tabIndex={0} aria-pressed={formData.type === TypeCourrier.INTERNE}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } }}
                       onClick={() => setFormData(prev => ({ ...prev, type: TypeCourrier.INTERNE }))}
                       className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 ${
                         formData.type === TypeCourrier.INTERNE
@@ -1770,6 +1792,8 @@ const EnregistrerCourrier: React.FC = () => {
 
                     {/* Option Courrier Externe - désactivée pour les secrétaires */}
                     <div
+                      role="button" tabIndex={0} aria-pressed={formData.type === TypeCourrier.EXTERNE}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } }}
                       onClick={() => canCreateExterne && setFormData(prev => ({ ...prev, type: TypeCourrier.EXTERNE }))}
                       className={`relative p-4 rounded-xl border-2 transition-all duration-300 ${
                         !canCreateExterne 

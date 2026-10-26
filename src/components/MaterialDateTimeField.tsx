@@ -36,7 +36,7 @@ function toDayjs(value: string | Date | null | undefined): Dayjs | null {
 }
 
 function toHtmlLocalString(value: Dayjs | null): string {
-  if (!value) return '';
+  if (!value || !value.isValid()) return '';
   return value.format('YYYY-MM-DDTHH:mm');
 }
 
@@ -80,7 +80,7 @@ export const MaterialDateTimeField: React.FC<Props> = ({
       onClose={() => setOpen(false)}
       view={view}
       onViewChange={(v) => setView(v as any)}
-      onChange={handleChange}
+      onChange={(newVal, context) => { if (!context.validationError) handleChange(newVal); }}
       disabled={disabled}
       minDateTime={min}
       maxDateTime={max}

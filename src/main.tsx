@@ -1,3 +1,4 @@
+import { laravelApiService } from './services/laravelApiService';
 import React, { Suspense, lazy, useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
@@ -10,33 +11,37 @@ import { NetworkStatusProvider } from './context/NetworkStatusContext'
 import { SyncStatusProvider } from './context/SyncStatusContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import ListeCourriers from './pages/ListeCourriers'
-import DetailCourrier from './pages/DetailCourrier'
-import EnregistrerCourrier from './pages/EnregistrerCourrier'
-import EnregistrerCourrierListe from './pages/EnregistrerCourrierListe'
-import RegistreCourriers from './pages/RegistreCourriers'
-import Workflow from './pages/Workflow'
-import Planning from './pages/Planning'
-import Notifications from './pages/Notifications'
-import Profil from './pages/Profil'
-import Parametres from './pages/Parametres'
-import Archives from './pages/Archives'
-import ImpressionCourriers from './pages/ImpressionCourriers'
+import Dashboard from './pages/WorkDashboard'
+import CourrierWorkspace from './pages/CourrierWorkspace'
+import AccountRecovery from './pages/AccountRecovery'
+const ListeCourriers = lazy(() => import('./pages/ListeCourriers'))
+const DetailCourrier = lazy(() => import('./pages/DetailCourrier'))
+const EnregistrerCourrier = lazy(() => import('./pages/EnregistrerCourrier'))
+const EnregistrerCourrierListe = lazy(() => import('./pages/EnregistrerCourrierListe'))
+const RegistreCourriers = lazy(() => import('./pages/RegistreCourriers'))
+const Workflow = lazy(() => import('./pages/Workflow'))
+const Planning = lazy(() => import('./pages/Planning'))
+const Notifications = lazy(() => import('./pages/Notifications'))
+const Profil = lazy(() => import('./pages/Profil'))
+const Parametres = lazy(() => import('./pages/Parametres'))
+const Archives = lazy(() => import('./pages/Archives'))
+const ImpressionCourriers = lazy(() => import('./pages/ImpressionCourriers'))
 import { initializeTestData } from './services/testDataService'
 import { initializeExtendedData } from './services/initializeExtendedData'
 import { initializeFirebaseDemoData } from './services/initializeFirebaseData'
 import { userSettingsService } from './services/userSettingsService'
 import './index.css'
+import './workspace.css'
+import './auth.css'
 import Preloader from './components/Preloader'
 import LockScreen from './components/LockScreen'
-import Rappels from './pages/Rappels'
-import NotificationsModule from './pages/NotificationsModule'
-import GestionCategoriesCourriers from './pages/GestionCategoriesCourriers'
-import StatistiquesCategoriesCourriers from './pages/StatistiquesCategoriesCourriers'
-import StatistiquesAvancees from './pages/StatistiquesAvancees'
-import CahierRegistre from './pages/CahierRegistre'
-import './utils/testNotifications' // Importer le test de notifications
+const Rappels = lazy(() => import('./pages/Rappels'))
+const NotificationsModule = lazy(() => import('./pages/NotificationsModule'))
+const GestionCategoriesCourriers = lazy(() => import('./pages/GestionCategoriesCourriers'))
+const StatistiquesCategoriesCourriers = lazy(() => import('./pages/StatistiquesCategoriesCourriers'))
+const StatistiquesAvancees = lazy(() => import('./pages/StatistiquesAvancees'))
+const CahierRegistre = lazy(() => import('./pages/CahierRegistre'))
+if (import.meta.env.DEV) void import('./utils/testNotifications')
 
 // Lazy loading pour l'organigramme
 const Organigramme = lazy(() => import('./pages/Organigramme'))
@@ -45,7 +50,7 @@ const Organigramme = lazy(() => import('./pages/Organigramme'))
 // Initialiser les données de test au démarrage (création de courriers désactivée)
 // initializeTestData() // Désactivé - ne crée plus de courriers automatiquement
 // Initialiser les données étendues (directions, services, utilisateurs supplémentaires)
-initializeExtendedData() // Cette fonction ne crée pas de courriers, seulement des entités et utilisateurs
+if (import.meta.env.DEV && !laravelApiService.isConfigured()) initializeExtendedData() // Cette fonction ne crée pas de courriers, seulement des entités et utilisateurs
 // Initialisation automatique des données Firebase désactivée - utiliser le bouton dans la liste des courriers
 // initializeFirebaseDemoData().catch(error => {
 //   console.error('Erreur lors de l\'initialisation des données Firebase:', error)
@@ -54,7 +59,7 @@ initializeExtendedData() // Cette fonction ne crée pas de courriers, seulement 
 // Migrer automatiquement les paramètres localStorage vers Firestore au démarrage
 // Cette migration s'exécute une seule fois et en arrière-plan
 const migrationKey = 'settings_migration_completed';
-if (!localStorage.getItem(migrationKey)) {
+if (import.meta.env.DEV && !laravelApiService.isConfigured() && !localStorage.getItem(migrationKey)) {
   userSettingsService.migrateAllSettings()
     .then(() => {
       localStorage.setItem(migrationKey, 'true');
@@ -85,7 +90,7 @@ function AppContent() {
     }
     return (
       <>
-        {children}
+        <div style={{display: 'contents'}} ref={node => { if (node) node.inert = locked; }}>{children}</div>
         {locked && <LockScreen />}
       </>
     );
@@ -97,8 +102,14 @@ function AppContent() {
 
   return (
         <BrowserRouter>
+        <Suspense fallback={<div role="status" className="workspace-loading">Chargement de votre espace…</div>}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/mot-de-passe-oublie" element={<AccountRecovery mode="request" />} />
+          <Route path="/reinitialiser-mot-de-passe" element={<AccountRecovery mode="reset" />} />
+          <Route path="/confirmer-email" element={<AccountRecovery mode="confirm" />} />
+          <Route path="/courriers/compact" element={<ProtectedRoute><Layout><CourrierWorkspace /></Layout></ProtectedRoute>} />
+          <Route path="/courriers/avance" element={<ProtectedRoute><Layout><ListeCourriers /></Layout></ProtectedRoute>} />
           <Route
             path="/"
             element={
@@ -329,12 +340,13 @@ function AppContent() {
             }
           />
         </Routes>
+        </Suspense>
       </BrowserRouter>
   );
 }
 
 function App() {
-  const [showPreloader, setShowPreloader] = useState(true);
+  const [showPreloader, setShowPreloader] = useState(() => !/^\/(login|mot-de-passe-oublie|reinitialiser-mot-de-passe|confirmer-email)(?:\/|$)/.test(window.location.pathname) && localStorage.getItem('session_locked') !== 'true');
 
   useEffect(() => {
     const hide = () => setShowPreloader(false);

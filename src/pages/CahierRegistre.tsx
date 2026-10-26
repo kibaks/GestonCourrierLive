@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -195,7 +196,7 @@ const CahierRegistre: React.FC = () => {
 
   // Utilitaire : valeur d'une cellule
   const getCellValue = (c: Courrier, key: string, dgAnnotationMap: Map<string, string>): string => {
-    if (key === 'numero') return c.numero || '-';
+    if (key === 'numero') return courrierReferences(c) || '-';
     if (key === 'dateReception') return exportSettingsService.formatDate(c.dateReception);
     if (key === 'statut') return c.statut || '-';
     if (key === 'priorite') return c.priorite || '-';
@@ -221,7 +222,7 @@ const CahierRegistre: React.FC = () => {
       if (registreConfig.filterSearch) {
         const q = registreConfig.filterSearch.toLowerCase();
         filteredCourriers = filteredCourriers.filter(c =>
-          (c.numero || '').toLowerCase().includes(q) ||
+          courrierReferences(c).toLowerCase().includes(q) ||
           (c.objet || '').toLowerCase().includes(q) ||
           (c.expediteur || '').toLowerCase().includes(q) ||
           (c.destinataire || '').toLowerCase().includes(q)

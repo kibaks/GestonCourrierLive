@@ -21,6 +21,7 @@ import {
   faCog,
   faUser,
   faSignOutAlt,
+  faLock,
   faChevronDown,
   faChevronRight,
   faTimes,
@@ -61,17 +62,39 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // P8 — Badge « nouveaux courriers » sur l'item « Courriers » du menu principal
   const courriersItems = useSelector((s: RootState) => s.courriers.items);
   const nouveauxCourriersCount = countNouveauxCourriers(courriersItems);
-  const { user, logout, hasRole } = useAuth();
+  const { user, logout, hasRole, lockSession } = useAuth();
   const { online, isApiStatus } = useNetworkStatus();
   const syncStatus = useSyncStatus();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [searchFocused, setSearchFocused] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  useEffect(() => { setSidebarOpen(false); }, [location.pathname, location.search]);
+  useEffect(() => {
+    const drawer = sidebarRef.current;
+    if (!drawer) return;
+    const media = window.matchMedia('(min-width: 1024px)');
+    const update = () => { drawer.inert = !media.matches && !sidebarOpen; };
+    update(); media.addEventListener('change', update);
+    if (!sidebarOpen || media.matches) return () => media.removeEventListener('change', update);
+    const previous = document.activeElement as HTMLElement | null;
+    const targets = () => Array.from(drawer.querySelectorAll<HTMLElement>('a[href],button:not([disabled])')).filter(x => x.offsetParent !== null);
+    targets()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setSidebarOpen(false); return; }
+      if (event.key !== 'Tab') return;
+      const list = targets(); const first = list[0]; const last = list[list.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { media.removeEventListener('change', update); document.removeEventListener('keydown', onKey); previous?.focus(); };
+  }, [sidebarOpen]);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
   const prevOnlineRef = useRef(online);
@@ -277,7 +300,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     : pathname === '/archives' ? 'Archives' : pathname === '/organigramme' ? 'Organigramme' : pathname === '/workflow' ? 'Annotations' : pathname === '/planning' ? 'Planning' : pathname === '/notifications' ? 'Notifications' : pathname === '/parametres' ? 'Paramètres' : pathname === '/profil' ? 'Mon profil' : 'Tableau de bord';
 
   return (
-    <div className="h-screen bg-surface-100 bg-mesh flex flex-col overflow-hidden">
+    <div className="h-screen bg-surface-100 flex flex-col overflow-hidden">
+      <a className="workspace-skip" href="#main-content">Passer au contenu principal</a>
       {/* Barre de statut : hors-ligne OU synchronisation en cours */}
       {(!online || syncStatus.syncing) && (
         <div className={`text-white text-sm font-semibold px-4 py-2 flex items-center justify-center gap-3 z-50 ${
@@ -307,7 +331,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <span className="opacity-80">{Math.round(syncStatus.progress)}%</span>
             </>
           ) : isApiStatus ? (
-            <span>L'API Laravel est injoignable. Démarrez-la avec « php artisan serve » dans le dossier laravel-api, et vérifiez que VITE_LARAVEL_API_URL pointe vers http://localhost:8000.</span>
+            <span>La connexion au service est momentanément indisponible. Vos modifications en attente seront synchronisées au retour de la connexion.</span>
           ) : (
             <span>Pas de connexion internet : certaines données peuvent ne pas se charger.</span>
           )}
@@ -315,7 +339,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       )}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Sidebar - fond bleu unifié, bords arrondis à droite sur desktop (masqué à l'impression) */}
-        <aside className={`no-print ${
+        <aside id="primary-navigation" ref={sidebarRef} aria-label="Navigation principale" className={`no-print ${
           `
           fixed inset-y-0 left-0 z-50 bg-sidebar-menu
           transform transition-all duration-300 ease-out
@@ -329,8 +353,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           willChange: 'transform',
           backfaceVisibility: 'hidden',
           WebkitBackfaceVisibility: 'hidden',
-          WebkitTransform: sidebarOpen ? 'translateX(0) translateZ(0)' : 'translateX(-100%) translateZ(0)',
-          transform: sidebarOpen ? 'translateX(0) translateZ(0)' : 'translateX(-100%) translateZ(0)',
           isolation: 'isolate'
         }}>
           <div className="flex flex-col h-full">
@@ -348,6 +370,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 )}
               </div>
               <button
+                aria-label="Fermer la navigation"
                 onClick={() => setSidebarOpen(false)}
                 className="lg:hidden sidebar-text-muted hover:sidebar-text transition-colors p-2.5 rounded-xl hover:bg-white/10"
               >
@@ -643,6 +666,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           }}>
             <div className="flex items-center gap-4">
               <button
+                aria-label="Ouvrir la navigation" aria-expanded={sidebarOpen} aria-controls="primary-navigation"
                 onClick={() => setSidebarOpen(true)}
                 className="lg:hidden text-surface-500 hover:text-surface-700 p-2.5 rounded-xl hover:bg-surface-100 transition-all"
               >
@@ -668,7 +692,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 />
                 <input
                   type="text"
-                  placeholder="Rechercher..."
+                  aria-label="Rechercher un courrier"
+                  placeholder="Rechercher un courrier…"
+                  onKeyDown={e => { if (e.key === 'Enter' && e.currentTarget.value.trim()) navigate(`/courriers?q=${encodeURIComponent(e.currentTarget.value.trim())}`); }}
                   onFocus={() => setSearchFocused(true)}
                   onBlur={() => setSearchFocused(false)}
                   className="w-full pl-11 pr-4 py-2.5 bg-surface-100/80 border border-surface-200 rounded-xl text-sm text-surface-700 placeholder-surface-400 focus:bg-white focus:border-primary-300 focus:ring-2 focus:ring-primary-100 transition-all duration-200"
@@ -686,6 +712,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               {/* Notifications */}
               <div className="relative" ref={notificationsRef}>
                 <button
+                  aria-label="Ouvrir les notifications" aria-expanded={notificationsOpen}
                   onClick={() => setNotificationsOpen(!notificationsOpen)}
                   className="relative p-2.5 text-surface-500 hover:text-surface-700 hover:bg-surface-100 rounded-xl transition-all focus:outline-none"
                 >
@@ -856,6 +883,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               {/* Profile Menu */}
               <div className="relative" ref={profileMenuRef}>
                 <button
+                  aria-label="Menu de mon compte" aria-expanded={profileMenuOpen}
                   onClick={() => setProfileMenuOpen(!profileMenuOpen)}
                   className="flex items-center gap-3 p-2 rounded-xl hover:bg-surface-100 transition-all focus:outline-none"
                 >
@@ -903,6 +931,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                       )}
                     </div>
                     <div className="border-t border-surface-100 py-2">
+                      <button type="button" onClick={() => { setProfileMenuOpen(false); lockSession(); }} className="flex items-center gap-3 px-5 py-3 w-full text-sm text-surface-700 hover:bg-sky-50">
+                        <div className="w-9 h-9 rounded-lg bg-sky-50 flex items-center justify-center text-sky-700"><FontAwesomeIcon icon={faLock} className="w-4 h-4" /></div>
+                        <span className="font-medium">Verrouiller ma session</span>
+                      </button>
                       <button
                         onClick={handleLogout}
                         className="flex items-center gap-3 px-5 py-3 w-full text-sm text-red-600 hover:bg-red-50 transition-colors"
@@ -920,7 +952,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </header>
 
           {/* Main content — zone de scroll avec padding et transition */}
-          <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 lg:px-8 py-6 min-h-0 bg-transparent scroll-smooth">
+          <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 lg:px-8 py-6 min-h-0 bg-transparent scroll-smooth">
             <div className="animate-fade-in max-w-[1600px] mx-auto w-full">
               {children}
             </div>

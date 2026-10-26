@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -145,7 +146,7 @@ export default function RegistreCourriers() {
         y = 20;
       }
       const row = [
-        c.numero || '-',
+        courrierReferences(c) || '-',
         new Date(c.dateReception).toLocaleDateString('fr-FR'),
         c.expediteur || '-',
         c.destinataire || '-',
@@ -288,7 +289,7 @@ export default function RegistreCourriers() {
                 <tbody>
                   {courriers.map((c, idx) => (
                     <tr key={c.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-surface-50'}>
-                      <td className="px-4 py-2 border">{c.numero}</td>
+                      <td className="px-4 py-2 border">{courrierReferences(c)}</td>
                       <td className="px-4 py-2 border">{new Date(c.dateReception).toLocaleDateString('fr-FR')}</td>
                       <td className="px-4 py-2 border">{c.expediteur}</td>
                       <td className="px-4 py-2 border">{c.destinataire}</td>
