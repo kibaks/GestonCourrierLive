@@ -21,6 +21,7 @@ import {
   faCog,
   faUser,
   faSignOutAlt,
+  faLock,
   faChevronDown,
   faChevronRight,
   faTimes,
@@ -61,7 +62,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // P8 — Badge « nouveaux courriers » sur l'item « Courriers » du menu principal
   const courriersItems = useSelector((s: RootState) => s.courriers.items);
   const nouveauxCourriersCount = countNouveauxCourriers(courriersItems);
-  const { user, logout, hasRole } = useAuth();
+  const { user, logout, hasRole, lockSession } = useAuth();
   const { online, isApiStatus } = useNetworkStatus();
   const syncStatus = useSyncStatus();
   const navigate = useNavigate();
@@ -930,6 +931,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                       )}
                     </div>
                     <div className="border-t border-surface-100 py-2">
+                      <button type="button" onClick={() => { setProfileMenuOpen(false); lockSession(); }} className="flex items-center gap-3 px-5 py-3 w-full text-sm text-surface-700 hover:bg-sky-50">
+                        <div className="w-9 h-9 rounded-lg bg-sky-50 flex items-center justify-center text-sky-700"><FontAwesomeIcon icon={faLock} className="w-4 h-4" /></div>
+                        <span className="font-medium">Verrouiller ma session</span>
+                      </button>
                       <button
                         onClick={handleLogout}
                         className="flex items-center gap-3 px-5 py-3 w-full text-sm text-red-600 hover:bg-red-50 transition-colors"

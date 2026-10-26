@@ -32,6 +32,7 @@ import { initializeFirebaseDemoData } from './services/initializeFirebaseData'
 import { userSettingsService } from './services/userSettingsService'
 import './index.css'
 import './workspace.css'
+import './auth.css'
 import Preloader from './components/Preloader'
 import LockScreen from './components/LockScreen'
 const Rappels = lazy(() => import('./pages/Rappels'))
@@ -89,7 +90,7 @@ function AppContent() {
     }
     return (
       <>
-        {children}
+        <div style={{display: 'contents'}} ref={node => { if (node) node.inert = locked; }}>{children}</div>
         {locked && <LockScreen />}
       </>
     );
