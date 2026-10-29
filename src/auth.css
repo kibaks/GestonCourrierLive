@@ -38,3 +38,72 @@
 @media(min-width:701px) and (max-height:800px){.auth-story-scenes{height:430px}.auth-story-copy h2{font-size:34px;margin-top:18px}.auth-story-copy p{font-size:12px;line-height:1.8;margin-top:16px}.auth-story-scene .auth-story-points{margin-top:20px}}
 @media(prefers-reduced-motion:reduce){.auth-scene .auth-story-scene,.auth-scene .auth-visual-card,.auth-scene .auth-story-scene .auth-floating-seal{transition:none!important;animation:none!important;transform:none!important}}
 .auth-scene .auth-story-scene .auth-floating-seal{animation:none!important}
+
+/* Fit the authentication content to the screen without clipping form controls.
+   Longer recovery forms and zoomed/keyboard layouts may still flow naturally. */
+.auth-scene{height:auto;min-height:100dvh;overflow:visible;display:grid;grid-template-rows:auto 1fr auto;padding:clamp(12px,2.2dvh,24px) clamp(16px,4vw,64px) clamp(10px,1.8dvh,18px)}
+.auth-scene .auth-frame{min-width:0;min-height:0;margin:0 auto;padding-block:clamp(12px,2dvh,22px);gap:clamp(32px,5vw,72px)}
+.auth-scene .auth-presentation{min-width:0;padding-block:8px}
+.auth-scene .auth-panel{min-width:0;padding:clamp(22px,3dvh,34px) clamp(24px,3vw,38px)}
+.auth-scene .auth-panel-icon{width:38px;height:38px;font-size:17px;margin-bottom:12px;border-radius:12px}
+.auth-scene .auth-description{margin-top:8px;line-height:1.65}
+.auth-scene .auth-form{margin-top:18px}
+.auth-scene .auth-form fieldset{gap:14px;min-width:0}
+.auth-scene .auth-input-wrap{margin-top:6px}
+.auth-scene .auth-submit{min-height:46px;padding-block:11px}
+.auth-scene .auth-bottom-note{margin-top:16px;padding-top:12px}
+.auth-scene .auth-bottom-note p{line-height:1.6}
+.auth-scene .auth-footer{min-width:0;padding-top:4px;line-height:1.5}
+@media(max-width:1000px){
+ .auth-scene .auth-frame{display:flex;align-items:center;justify-content:center;max-width:470px}
+ .auth-scene .auth-presentation{display:none}
+ .auth-scene .auth-panel{max-width:440px;justify-self:center}
+ .auth-scene .auth-topbar{max-width:470px}
+ .auth-scene .auth-footer{max-width:470px;justify-content:center}
+ .auth-scene .auth-footer>span:last-child{display:none}
+}
+@media(min-width:1001px) and (max-height:700px){
+ .auth-scene .auth-story-scenes{height:330px}
+ .auth-scene .auth-story-stage{min-height:245px}
+ .auth-scene .auth-story-graphic{display:none}
+ .auth-scene .auth-story-copy h2{font-size:32px;line-height:1.18;margin-top:14px}
+ .auth-scene .auth-story-copy p{font-size:12px;line-height:1.7;margin-top:14px}
+ .auth-scene .auth-story-points{margin-top:18px}
+}
+@media(max-width:700px){
+ .auth-scene .auth-top-status{display:none}
+ .auth-scene .auth-panel{padding:24px;max-width:440px}
+ .auth-scene .auth-panel h1{font-size:26px}
+ .auth-scene .auth-input-wrap input{font-size:16px}
+ .auth-scene .auth-topbar{gap:12px}
+}
+@media(max-height:620px){
+ .auth-scene{padding-top:12px;padding-bottom:10px}
+ .auth-scene .auth-frame{padding-block:8px}
+ .auth-scene .auth-panel{padding:18px 24px}
+ .auth-scene .auth-panel-icon{display:none}
+ .auth-scene .auth-eyebrow{margin-bottom:5px}
+ .auth-scene .auth-panel h1{font-size:25px}
+ .auth-scene .auth-description{font-size:12px;line-height:1.5;margin-top:6px}
+ .auth-scene .auth-form{margin-top:14px}
+ .auth-scene .auth-form fieldset{gap:11px}
+ .auth-scene .auth-input-wrap{min-height:44px;margin-top:4px}
+ .auth-scene .auth-input-wrap input{padding-block:10px}
+ .auth-scene .auth-submit{min-height:44px;padding-block:10px}
+ .auth-scene .auth-bottom-note{margin-top:12px;padding-top:10px}
+ .auth-scene .auth-brand small{display:none}
+}
+@media(max-width:360px){.auth-scene .auth-panel{padding-inline:20px}.auth-scene .auth-brand{font-size:18px}}
+.auth-scene .auth-notice{margin-top:12px;padding:10px 12px;line-height:1.6}
+@media(max-height:620px){.auth-scene .auth-panel:has(.auth-notice) .auth-bottom-note{display:none}}
+@media(min-width:701px) and (max-height:480px){
+ .auth-scene .auth-frame{max-width:850px}
+ .auth-scene .auth-presentation{display:none}
+ .auth-scene .auth-panel:has(#login-email){max-width:850px;display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1fr);column-gap:28px;align-items:start}
+ .auth-scene .auth-panel:has(#login-email)>.auth-eyebrow{grid-column:1;grid-row:1;margin:0}
+ .auth-scene .auth-panel:has(#login-email)>h1{grid-column:1;grid-row:2}
+ .auth-scene .auth-panel:has(#login-email)>.auth-description{grid-column:1;grid-row:3}
+ .auth-scene .auth-panel:has(#login-email)>.auth-bottom-note{grid-column:1;grid-row:4;margin-top:8px;padding-top:8px}
+ .auth-scene .auth-panel:has(#login-email)>.auth-form{grid-column:2;grid-row:1 / span 5;margin-top:0}
+ .auth-scene .auth-panel:has(#login-email)>.auth-notice{grid-column:1;grid-row:4;margin-top:8px}
+}
