@@ -33,6 +33,8 @@ export const MaterialInput: React.FC<Props> = ({
   onBlur,
   children,
 }) => {
+  const fieldId=React.useId();
+  const errorId=`${fieldId}-error`;
   const hasValue = value !== undefined && value !== '';
   const [focused, setFocused] = React.useState(false);
   const isActive = focused || hasValue || type === 'select';
@@ -52,11 +54,12 @@ export const MaterialInput: React.FC<Props> = ({
 
   return (
     <div className={`relative rounded-lg border-2 transition-colors ${error ? 'border-red-300 bg-red-50/50' : focused ? 'border-blue-300 bg-blue-50/30' : 'border-slate-200 bg-white'} ${className}`}>
-      <label className={labelCls}>
+      <label htmlFor={fieldId} className={labelCls}>
         {label}{required && <span className="text-red-400 ml-0.5">*</span>}
       </label>
       {type === 'select' ? (
         <select
+          id={fieldId} aria-invalid={!!error} aria-describedby={error?errorId:undefined}
           value={value}
           onChange={onChange}
           disabled={disabled}
@@ -68,6 +71,7 @@ export const MaterialInput: React.FC<Props> = ({
         </select>
       ) : multiline ? (
         <textarea
+          id={fieldId} aria-invalid={!!error} aria-describedby={error?errorId:undefined}
           value={value}
           onChange={onChange}
           disabled={disabled}
@@ -79,6 +83,7 @@ export const MaterialInput: React.FC<Props> = ({
         />
       ) : (
         <input
+          id={fieldId} aria-invalid={!!error} aria-describedby={error?errorId:undefined}
           type={type}
           value={value}
           onChange={onChange}
@@ -90,7 +95,7 @@ export const MaterialInput: React.FC<Props> = ({
         />
       )}
       <div className={borderCls} />
-      {error && <p className="text-red-500 text-xs mt-0.5 px-3 pb-1">{error}</p>}
+      {error && <p id={errorId} className="text-red-500 text-xs mt-0.5 px-3 pb-1">{error}</p>}
     </div>
   );
 };

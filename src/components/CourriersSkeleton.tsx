@@ -1,78 +1,30 @@
 import React from 'react';
 
-const CourriersSkeleton: React.FC = () => {
-  return (
-    <div className="space-y-6">
-      {/* Header + stat cards skeleton */}
-      <div className="rounded-2xl shadow-xl overflow-hidden">
-        {/* Header band */}
-        <div className="bg-gradient-to-r from-blue-500 via-blue-600 to-cyan-500 p-6">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-14 h-14 rounded-xl bg-white/25 flex-shrink-0" />
-            <div className="space-y-2">
-              <div className="h-6 w-32 rounded-lg bg-white/30" />
-              <div className="h-4 w-20 rounded bg-white/20" />
-            </div>
-          </div>
-          {/* Stat mini-cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-white rounded-xl p-4">
-                <div className="flex items-center gap-3">
-                  <div className="skeleton w-10 h-10 rounded-lg flex-shrink-0" />
-                  <div className="flex-1 space-y-1.5">
-                    <div className="skeleton h-6 w-8 rounded" />
-                    <div className="skeleton h-3 w-14 rounded" />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+type Props = { mode?: 'liste' | 'arborescence'; showCreate?: boolean };
+const Placeholder = ({ className = '' }: { className?: string }) => <span className={`courrier-placeholder ${className}`} />;
 
-      {/* Toolbar skeleton */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-lg">
-        <div className="flex items-center gap-3">
-          <div className="skeleton h-10 rounded-xl flex-1 max-w-[280px]" />
-          <div className="skeleton h-10 w-24 rounded-xl" />
-          <div className="skeleton h-10 w-32 rounded-xl" />
-          <div className="ml-auto skeleton h-10 w-28 rounded-xl" />
-          <div className="skeleton h-10 w-24 rounded-xl" />
-        </div>
-      </div>
-
-      {/* List rows skeleton */}
-      <div className="space-y-3">
-        {[...Array(6)].map((_, i) => (
-          <div
-            key={i}
-            className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm"
-            style={{ opacity: 1 - i * 0.12 }}
-          >
-            <div className="flex items-start gap-4">
-              <div className="skeleton w-4 h-4 rounded mt-1 flex-shrink-0" />
-              <div className="skeleton w-10 h-10 rounded-lg flex-shrink-0" />
-              <div className="flex-1 space-y-2.5 min-w-0">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="skeleton h-5 w-44 rounded" />
-                  <div className="skeleton h-6 w-20 rounded-full flex-shrink-0" />
-                </div>
-                <div className="skeleton h-4 w-full rounded" />
-                <div className="skeleton h-4 w-3/4 rounded" />
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="skeleton h-5 w-16 rounded-full" />
-                  <div className="skeleton h-5 w-20 rounded-full" />
-                  <div className="skeleton h-5 w-24 rounded-full" />
-                </div>
-              </div>
-              <div className="skeleton w-8 h-8 rounded-lg flex-shrink-0" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-export default CourriersSkeleton;
+export default function CourriersSkeleton({ mode = 'liste', showCreate = false }: Props) {
+ return <div className="courrier-layout-skeleton" role="status" aria-live="polite" aria-label="Chargement des courriers">
+  <span className="sr-only">Chargement des courriers…</span>
+  <div aria-hidden="true">
+   <div className="courrier-skeleton-header">
+    <div className="courrier-skeleton-heading"><div className="courrier-skeleton-title"><Placeholder className="sk-icon"/><div><Placeholder className="sk-title"/><Placeholder className="sk-count"/></div></div><div className="courrier-skeleton-view"><Placeholder className="sk-search"/><Placeholder className="sk-switch"/></div></div>
+    <div className="courrier-skeleton-tools"><div><Placeholder className="sk-tool"/><Placeholder className="sk-tool-small"/></div><div><Placeholder className="sk-tool-small"/><Placeholder className="sk-tool-small"/></div></div>
+    <div className="courrier-skeleton-stats"><Placeholder className="sk-stat-label"/><Placeholder className="sk-stat-count"/></div>
+   </div>
+   <div className="courrier-skeleton-table">
+    <div className="courrier-skeleton-help"><Placeholder className="sk-help"/></div>
+    <div className="courrier-skeleton-columns"><Placeholder className="sk-column-name"/><Placeholder className="sk-column-correspondents"/><Placeholder className="sk-checkbox"/></div>
+    <div className={`courrier-skeleton-group ${mode==='arborescence'?'is-folder':''}`}><Placeholder className="sk-folder-icon"/><Placeholder className="sk-group-title"/><Placeholder className="sk-count"/></div>
+    {Array.from({length:6},(_,index)=><div className={`courrier-skeleton-row ${mode==='arborescence'?'is-nested':''}`} key={index}>
+     <div className="courrier-skeleton-subject"><div className="sk-reference"><Placeholder className="sk-number"/><Placeholder className="sk-badge"/></div><Placeholder className={`sk-subject-line ${index%2?'shorter':''}`}/><div className="sk-mobile-meta"><Placeholder className="sk-badge"/><Placeholder className="sk-date"/></div><div className="sk-mobile-correspondents"><Placeholder/><Placeholder/></div><div className="sk-row-tools"><Placeholder/><Placeholder/></div></div>
+     <div className="courrier-skeleton-meta"><Placeholder className="sk-badge"/><Placeholder className="sk-date"/></div>
+     <div className="courrier-skeleton-correspondents"><Placeholder/><Placeholder/></div>
+     <div className="courrier-skeleton-actions"><Placeholder className="sk-checkbox"/><Placeholder className="sk-menu"/></div>
+    </div>)}
+   </div>
+   <div className="courrier-skeleton-pagination"><Placeholder className="sk-page-summary"/><div><Placeholder className="sk-page-size"/><Placeholder className="sk-page-controls"/></div></div>
+   {showCreate&&<Placeholder className="courrier-skeleton-create"/>}
+  </div>
+ </div>;
+}

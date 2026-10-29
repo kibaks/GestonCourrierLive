@@ -1,3 +1,10 @@
+import {internalEntityPath,matchesInternalEntity} from '../utils/internalEntities';
+import {entiteTypeService} from '../services/entiteTypeService';
+import {buildCahierRegisterPdf} from '../utils/cahierRegisterPdf';
+import {filterRegisterCourriers} from '../utils/registerFilters';
+import { profileRequest } from '../services/profileService';
+import RegisterPreviewDialog from '../components/courriers/RegisterPreviewDialog';
+import { courrierReferences, courrierSearchReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -47,11 +54,19 @@ interface RegistreConfig {
   filterEntityId: string;
 }
 
-const CahierRegistre: React.FC = () => {
+const CahierRegistre: React.FC<{adminMode?: boolean}> = ({adminMode=false}) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [courriers, setCourriers] = useState<Courrier[]>([]);
+  const [registryEntities,setRegistryEntities]=useState(()=>entiteOrganisationnelleService.getAllEntities().filter(e=>e.actif!==false));
+  const [entityLevels,setEntityLevels]=useState(()=>entiteTypeService.getActiveTypesForFilters());
+  const [entitySelection,setEntitySelection]=useState<Record<string,string>>({});
+  const matchEntity=(row:Courrier,id:string)=>matchesInternalEntity(row,id,registryEntities);
   const [loading, setLoading] = useState(true);
+  const [settingsVersion, setSettingsVersion] = useState<string|null>(null);
+  const [settingsReady,setSettingsReady]=useState(false);
+  const [settingsMessage,setSettingsMessage]=useState('');
+  const [savingSettings,setSavingSettings]=useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [hierarchicalPath, setHierarchicalPath] = useState<Array<{ id: string; nom: string; type: string }>>([]);
@@ -65,7 +80,7 @@ const CahierRegistre: React.FC = () => {
   const [registreConfig, setRegistreConfig] = useState<RegistreConfig>({
     title: 'Cahier Registre des Courriers',
     subtitle: '',
-    organisationName: '',
+    organisationName: 'Autorité de Régulation des Marchés Publics',
     organisationAddress: '',
     showHeader: true,
     includeQrCode: false,
@@ -80,7 +95,7 @@ const CahierRegistre: React.FC = () => {
     tableMargin: 10,
     columnPadding: 2,
     columns: [
-      { key: 'numero', label: 'N° Courrier', width: 28, visible: true },
+      { key: 'numero', label: 'Numéro administratif', width: 28, visible: true },
       { key: 'dateReception', label: 'Date', width: 22, visible: true },
       { key: 'expediteur', label: 'Expéditeur', width: 38, visible: true },
       { key: 'destinataire', label: 'Destinataire', width: 38, visible: true },
@@ -109,6 +124,9 @@ const CahierRegistre: React.FC = () => {
   const loadCourriers = async () => {
     try {
       setLoading(true);
+      await Promise.all([entiteOrganisationnelleService.refreshFromApi(),entiteTypeService.syncFromApi()]);
+      setRegistryEntities(entiteOrganisationnelleService.getAllEntities().filter(e=>e.actif!==false));
+      setEntityLevels(entiteTypeService.getActiveTypesForFilters());
       // Utiliser getAccessibleCourriers pour respecter les permissions par rôle (comme dans ListeCourriers)
       const data = user ? await courrierService.getAccessibleCourriers(user.id, user) : [];
       setCourriers(data);
@@ -125,32 +143,21 @@ const CahierRegistre: React.FC = () => {
     }
   };
 
-  // Adapter les colonnes selon le sens et le type filtrés
-  const adaptColumnsToFilters = useCallback((filterSens: string, filterType: string) => {
-    const sens = filterSens && filterSens !== 'ALL' ? filterSens as SensCourrier : SensCourrier.ENTRANT;
-    const type = filterType && filterType !== 'ALL' ? filterType as TypeCourrier : TypeCourrier.EXTERNE;
-    
-    const displayFields = formulaireCourrierService.getDisplayFields(sens, type);
-    
-    setRegistreConfig(prev => {
-      const existingColumnsMap = new Map(prev.columns.map(col => [col.key, col]));
-      const newColumns: Array<{ key: string; label: string; width: number; visible: boolean }> = [];
-      displayFields.forEach(field => {
-        const existingCol = existingColumnsMap.get(field.name);
-        newColumns.push({
-          key: field.name,
-          label: field.label,
-          width: 35,
-          visible: existingCol?.visible ?? true,
-        });
-      });
-      return { ...prev, columns: newColumns };
-    });
-  }, []);
-
-  useEffect(() => {
-    adaptColumnsToFilters(registreConfig.filterSens, registreConfig.filterType);
-  }, [registreConfig.filterSens, registreConfig.filterType, adaptColumnsToFilters]);
+  useEffect(()=>{
+    const controller=new AbortController();
+    profileRequest<{version:string|null;config:Partial<RegistreConfig>}>('register/settings',undefined,'GET',controller.signal).then(state=>{
+      setSettingsVersion(state.version);setRegistreConfig(previous=>({...previous,...state.config}));setSettingsReady(true);
+    }).catch(error=>{if(!controller.signal.aborted)setSettingsMessage(error instanceof Error?error.message:'Configuration indisponible.');});
+    return()=>controller.abort();
+  },[]);
+  const saveSettings=async()=>{
+    if(savingSettings||!settingsReady)return;setSavingSettings(true);setSettingsMessage('');
+    try{
+      const config=Object.fromEntries(Object.entries(registreConfig).filter(([key])=>!key.startsWith('filter')));
+      const result=await profileRequest<{version:string}>('register/settings',{version:settingsVersion,config},'PUT');
+      setSettingsVersion(result.version);setSettingsMessage('Configuration du cahier enregistrée pour tous les utilisateurs.');
+    }catch(error){setSettingsMessage(error instanceof Error?error.message:'Enregistrement impossible.');}finally{setSavingSettings(false);}
+  };
 
   // Handlers pour les filtres
   const handleFilterSens = (sens: 'ALL' | 'ENTRANT' | 'SORTANT') => {
@@ -195,13 +202,15 @@ const CahierRegistre: React.FC = () => {
 
   // Utilitaire : valeur d'une cellule
   const getCellValue = (c: Courrier, key: string, dgAnnotationMap: Map<string, string>): string => {
-    if (key === 'numero') return c.numero || '-';
+    const internalPath=internalEntityPath(c,key,entityLevels,registryEntities);
+    if(internalPath)return internalPath;
+    if (key === 'numero') return courrierReferences(c) || '-';
     if (key === 'dateReception') return exportSettingsService.formatDate(c.dateReception);
     if (key === 'statut') return c.statut || '-';
     if (key === 'priorite') return c.priorite || '-';
     if (key === 'annotationDG') {
       const v = dgAnnotationMap.get(c.id);
-      return v ? (v.length > 35 ? v.substring(0, 32) + '...' : v) : '-';
+      return v || '-';
     }
     if (c.extraFields && key in c.extraFields) return String(c.extraFields[key] || '-');
     return String((c as any)[key] || '-');
@@ -209,26 +218,10 @@ const CahierRegistre: React.FC = () => {
 
   // Fonction pour générer le registre PDF — style tableau Word
   const handleGenerateRegistre = async (preview = false) => {
+    if(invalidPeriod)return;
     try {
       // ── Filtrage ──
-      let filteredCourriers = courriers;
-      if (registreConfig.filterSens !== 'ALL') filteredCourriers = filteredCourriers.filter(c => c.sens === registreConfig.filterSens);
-      if (registreConfig.filterType !== 'ALL') filteredCourriers = filteredCourriers.filter(c => c.type === registreConfig.filterType);
-      if (registreConfig.filterStatut !== 'ALL') filteredCourriers = filteredCourriers.filter(c => c.statut === registreConfig.filterStatut);
-      if (registreConfig.filterPriorite !== 'ALL') filteredCourriers = filteredCourriers.filter(c => c.priorite === registreConfig.filterPriorite);
-      if (registreConfig.filterDateDebut) filteredCourriers = filteredCourriers.filter(c => new Date(c.dateReception) >= new Date(registreConfig.filterDateDebut));
-      if (registreConfig.filterDateFin) filteredCourriers = filteredCourriers.filter(c => new Date(c.dateReception) <= new Date(registreConfig.filterDateFin));
-      if (registreConfig.filterSearch) {
-        const q = registreConfig.filterSearch.toLowerCase();
-        filteredCourriers = filteredCourriers.filter(c =>
-          (c.numero || '').toLowerCase().includes(q) ||
-          (c.objet || '').toLowerCase().includes(q) ||
-          (c.expediteur || '').toLowerCase().includes(q) ||
-          (c.destinataire || '').toLowerCase().includes(q)
-        );
-      }
-      if (registreConfig.filterMesAssignations) filteredCourriers = filteredCourriers.filter(c => mesAssignations.has(c.id));
-      if (registreConfig.filterNonClassifies) filteredCourriers = filteredCourriers.filter(c => !c.categorieId);
+      let filteredCourriers = filterRegisterCourriers(courriers,registreConfig,mesAssignations,matchEntity);
 
       // ── Annotations DG ──
       const dgAnnotationMap = new Map<string, string>();
@@ -260,247 +253,8 @@ const CahierRegistre: React.FC = () => {
         }
       }
 
-      // ── Init PDF ──
-      const jsPdfOrientation = registreConfig.orientation === 'landscape' ? 'l' : 'p';
-      const doc = new jsPDF(jsPdfOrientation, 'mm', registreConfig.paperSize);
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 15;
-
-      // ── Couleurs style Word ──
-      const wordHeaderBg: [number, number, number] = [31, 78, 121];   // bleu Word
-      const wordHeaderText: [number, number, number] = [255, 255, 255];
-      const wordBorder: [number, number, number] = [180, 198, 231];   // bleu clair
-      const wordRowAlt: [number, number, number] = [222, 235, 247];   // bleu très pâle
-      const wordRowWhite: [number, number, number] = [255, 255, 255];
-      const wordText: [number, number, number] = [31, 31, 31];
-      const footerColor: [number, number, number] = [128, 128, 128];
-
-      // ── QR column width ──
-      const qrColW = registreConfig.includeQrCode ? 14 : 0;
-      const rowNumColW = registreConfig.showRowNumbers ? 10 : 0;
-
-      // ── Colonnes visibles ──
-      let visibleColumns = registreConfig.columns.filter(col => col.visible);
-      const colKeys = visibleColumns.map(c => c.key);
-      const colLabels = visibleColumns.map(c => c.label);
-
-      // ── Calculer largeurs des colonnes de données ──
-      doc.setFontSize(registreConfig.fontSize);
-      const totalQrNum = qrColW + rowNumColW;
-      const dataAvailW = pageWidth - 2 * margin - totalQrNum;
-      const configWidths = visibleColumns.map(col => col.width);
-      const configTotal = configWidths.reduce((a, b) => a + b, 0);
-      const colWidths = configWidths.map(w => (w / configTotal) * dataAvailW);
-      const tableWidth = colWidths.reduce((a, b) => a + b, 0) + totalQrNum;
-
-      let startX = margin;
-      if (registreConfig.tableAlign === 'center') startX = (pageWidth - tableWidth) / 2;
-      else if (registreConfig.tableAlign === 'right') startX = pageWidth - tableWidth - margin;
-
-      // ── Hauteurs ──
-      const rowH = registreConfig.includeQrCode ? 16 : 7;
-      const headerRowH = 9;
-
-      // ── Fonction dessiner en-tête de tableau ──
-      const drawTableHeader = (y: number) => {
-        let x = startX;
-        doc.setFillColor(...wordHeaderBg);
-        doc.setDrawColor(...wordBorder);
-        doc.setLineWidth(0.3);
-
-        if (registreConfig.showRowNumbers) {
-          doc.rect(x, y, rowNumColW, headerRowH, 'FD');
-          doc.setFontSize(registreConfig.fontSize - 1);
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(...wordHeaderText);
-          doc.text('#', x + rowNumColW / 2, y + headerRowH / 2 + 1.5, { align: 'center' });
-          x += rowNumColW;
-        }
-        colLabels.forEach((label, i) => {
-          doc.setFillColor(...wordHeaderBg);
-          doc.rect(x, y, colWidths[i], headerRowH, 'FD');
-          doc.setFontSize(registreConfig.fontSize - 1);
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(...wordHeaderText);
-          const maxChars = Math.floor(colWidths[i] / 1.8);
-          const txt = label.length > maxChars ? label.substring(0, maxChars - 1) + '.' : label;
-          doc.text(txt, x + 2, y + headerRowH / 2 + 1.5);
-          x += colWidths[i];
-        });
-        if (registreConfig.includeQrCode) {
-          doc.setFillColor(...wordHeaderBg);
-          doc.rect(x, y, qrColW, headerRowH, 'FD');
-          doc.setFontSize(registreConfig.fontSize - 1);
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(...wordHeaderText);
-          doc.text('QR', x + qrColW / 2, y + headerRowH / 2 + 1.5, { align: 'center' });
-        }
-        doc.setTextColor(...wordText);
-      };
-
-      // ── Fonction dessiner ligne de données ──
-      const drawDataRow = (c: Courrier, rowIndex: number, y: number, globalIndex: number) => {
-        const isAlt = rowIndex % 2 === 1;
-        const bgColor = isAlt ? wordRowAlt : wordRowWhite;
-        let x = startX;
-
-        if (registreConfig.showRowNumbers) {
-          doc.setFillColor(...bgColor);
-          doc.setDrawColor(...wordBorder);
-          doc.setLineWidth(0.2);
-          doc.rect(x, y, rowNumColW, rowH, 'FD');
-          doc.setFontSize(registreConfig.fontSize - 1);
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(100, 100, 100);
-          doc.text(String(globalIndex + 1), x + rowNumColW / 2, y + rowH / 2 + 1.5, { align: 'center' });
-          x += rowNumColW;
-        }
-
-        colKeys.forEach((key, i) => {
-          doc.setFillColor(...bgColor);
-          doc.setDrawColor(...wordBorder);
-          doc.setLineWidth(0.2);
-          doc.rect(x, y, colWidths[i], rowH, 'FD');
-          doc.setFontSize(registreConfig.fontSize);
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(...wordText);
-          const raw = getCellValue(c, key, dgAnnotationMap);
-          const maxChars = Math.floor(colWidths[i] / (registreConfig.fontSize * 0.22));
-          const txt = raw.length > maxChars ? raw.substring(0, maxChars - 1) + '…' : raw;
-          // centrage vertical
-          const textY = registreConfig.includeQrCode ? y + rowH / 2 + 1.5 : y + rowH / 2 + 1.5;
-          doc.text(txt, x + 2, textY);
-          x += colWidths[i];
-        });
-
-        if (registreConfig.includeQrCode) {
-          doc.setFillColor(...bgColor);
-          doc.setDrawColor(...wordBorder);
-          doc.setLineWidth(0.2);
-          doc.rect(x, y, qrColW, rowH, 'FD');
-          const qrData = qrDataUrls.get(c.id);
-          if (qrData) {
-            try {
-              doc.addImage(qrData, 'PNG', x + 1, y + 1, qrColW - 2, rowH - 2);
-            } catch { /* silencieux */ }
-          }
-        }
-      };
-
-      // ── Dessiner en-tête du document (page 1 seulement) ──
-      let yCursor = margin;
-
-      if (registreConfig.showHeader) {
-        // Cadre d'en-tête
-        doc.setDrawColor(...wordBorder);
-        doc.setLineWidth(0.5);
-        doc.rect(margin, yCursor, pageWidth - 2 * margin, registreConfig.organisationName ? 28 : 22);
-
-        // Nom organisation
-        if (registreConfig.organisationName) {
-          doc.setFontSize(11);
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(31, 78, 121);
-          doc.text(registreConfig.organisationName, pageWidth / 2, yCursor + 8, { align: 'center' });
-          if (registreConfig.organisationAddress) {
-            doc.setFontSize(8);
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(80, 80, 80);
-            doc.text(registreConfig.organisationAddress, pageWidth / 2, yCursor + 13, { align: 'center' });
-          }
-        }
-
-        // Titre principal
-        const titleY = registreConfig.organisationName ? yCursor + 19 : yCursor + 9;
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(31, 78, 121);
-        doc.text(registreConfig.title, pageWidth / 2, titleY, { align: 'center' });
-
-        // Sous-titre
-        if (registreConfig.subtitle) {
-          doc.setFontSize(9);
-          doc.setFont('helvetica', 'italic');
-          doc.setTextColor(80, 80, 80);
-          doc.text(registreConfig.subtitle, pageWidth / 2, titleY + 5, { align: 'center' });
-        }
-
-        yCursor += registreConfig.organisationName ? 32 : 26;
-
-        // Barre d'infos (période, total)
-        doc.setFillColor(240, 246, 255);
-        doc.setDrawColor(...wordBorder);
-        doc.setLineWidth(0.3);
-        doc.rect(margin, yCursor, pageWidth - 2 * margin, 8, 'FD');
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(31, 78, 121);
-        const periodLabel = registreConfig.filterDateDebut && registreConfig.filterDateFin
-          ? `Période : ${new Date(registreConfig.filterDateDebut).toLocaleDateString('fr-FR')} → ${new Date(registreConfig.filterDateFin).toLocaleDateString('fr-FR')}   |   `
-          : '';
-        doc.text(
-          `${periodLabel}Total : ${filteredCourriers.length} courrier(s)   |   Généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`,
-          pageWidth / 2, yCursor + 5, { align: 'center' }
-        );
-        yCursor += 11;
-      }
-
-      // ── Statistiques ──
-      if (registreConfig.includeStats) {
-        const entrants = filteredCourriers.filter(c => c.sens === SensCourrier.ENTRANT).length;
-        const sortants = filteredCourriers.filter(c => c.sens === SensCourrier.SORTANT).length;
-        doc.setFillColor(248, 251, 255);
-        doc.setDrawColor(...wordBorder);
-        doc.setLineWidth(0.3);
-        doc.rect(margin, yCursor, pageWidth - 2 * margin, 7, 'FD');
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(31, 78, 121);
-        doc.text(`Entrants : ${entrants}`, margin + 5, yCursor + 4.5);
-        doc.setTextColor(139, 69, 19);
-        doc.text(`Sortants : ${sortants}`, margin + 45, yCursor + 4.5);
-        yCursor += 10;
-      }
-
-      // ── Premier en-tête de tableau ──
-      drawTableHeader(yCursor);
-      yCursor += headerRowH;
-
-      // ── Lignes de données ──
-      let pageIndex = 0;
-      const totalPages = Math.ceil(filteredCourriers.length / Math.max(1, Math.floor((pageHeight - yCursor - 20) / rowH)));
-
-      const drawFooter = (pg: number) => {
-        doc.setFontSize(7);
-        doc.setTextColor(...footerColor);
-        doc.setDrawColor(...wordBorder);
-        doc.setLineWidth(0.2);
-        doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
-        doc.text(`${registreConfig.title}`, margin, pageHeight - 8);
-        doc.text(`Page ${pg + 1}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
-        doc.text(`Total : ${filteredCourriers.length} courrier(s)`, pageWidth - margin, pageHeight - 8, { align: 'right' });
-      };
-
-      filteredCourriers.forEach((c, idx) => {
-        if (yCursor + rowH > pageHeight - 16) {
-          drawFooter(pageIndex);
-          doc.addPage();
-          pageIndex++;
-          yCursor = margin;
-          drawTableHeader(yCursor);
-          yCursor += headerRowH;
-        }
-        drawDataRow(c, idx, yCursor, idx);
-        yCursor += rowH;
-      });
-
-      // Fermer le tableau (bordure basse)
-      doc.setDrawColor(...wordBorder);
-      doc.setLineWidth(0.3);
-      doc.line(startX, yCursor, startX + tableWidth, yCursor);
-
-      drawFooter(pageIndex);
+      const visibleColumns=registreConfig.columns.filter(column=>column.visible);
+      const doc=buildCahierRegisterPdf(filteredCourriers.map(c=>({id:c.id,sens:c.sens,values:visibleColumns.map(column=>getCellValue(c,column.key,dgAnnotationMap)),qrDataUrl:qrDataUrls.get(c.id)})),registreConfig);
 
       // ── Export ──
       if (preview) {
@@ -516,14 +270,13 @@ const CahierRegistre: React.FC = () => {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'entete' | 'mise-en-page' | 'filtres' | 'colonnes'>('entete');
+  const [activeTab, setActiveTab] = useState<'cahier' | 'entete' | 'mise-en-page' | 'filtres' | 'colonnes'>(adminMode?'entete':'cahier');
 
   // ── Computed: filtered count preview ──
-  const previewCount = courriers.filter(c =>
-    (registreConfig.filterSens === 'ALL' || c.sens === registreConfig.filterSens) &&
-    (registreConfig.filterType === 'ALL' || c.type === registreConfig.filterType) &&
-    (registreConfig.filterStatut === 'ALL' || c.statut === registreConfig.filterStatut)
-  ).length;
+  const selectedCourriers=filterRegisterCourriers(courriers,registreConfig,mesAssignations,matchEntity);
+  const previewCount=selectedCourriers.length;
+  const invalidPeriod=!!(registreConfig.filterDateDebut&&registreConfig.filterDateFin&&registreConfig.filterDateFin<registreConfig.filterDateDebut);
+
 
   if (loading) {
     return (
@@ -576,15 +329,38 @@ const CahierRegistre: React.FC = () => {
     </label>
   );
 
-  const navItems: Array<{ id: typeof activeTab; icon: any; label: string }> = [
+  const allNavItems: Array<{ id: typeof activeTab; icon: any; label: string }> = [
+    { id: 'cahier', icon: faBook, label: 'Le cahier' },
     { id: 'entete',      icon: faBuilding, label: 'En-tête' },
     { id: 'mise-en-page', icon: faTable,   label: 'Mise en page' },
     { id: 'filtres',     icon: faFilter,   label: 'Filtres' },
     { id: 'colonnes',    icon: faColumns,  label: 'Colonnes' },
   ];
 
+  const navItems=allNavItems.filter(item=>adminMode?['entete','mise-en-page','colonnes'].includes(item.id):['cahier','filtres'].includes(item.id));
+  const visibleColumns=registreConfig.columns.filter(column=>column.visible);
+  const paperPreview = (<section className="registry-book" aria-label="Cahier administratif des courriers">
+            <div className="registry-binding" aria-hidden="true" />
+            <header className="registry-paper-header">
+              <p>République démocratique du Congo</p>
+              <strong>{registreConfig.organisationName || 'Autorité de Régulation des Marchés Publics'}</strong>
+              <span>{registreConfig.organisationAddress || 'Kinshasa · ARMP'}</span>
+              <h2>{registreConfig.title || 'Cahier registre des courriers'}</h2>
+              {registreConfig.subtitle && <p>{registreConfig.subtitle}</p>}
+              <div className="registry-book-meta"><span>Exercice : {new Date().getFullYear()}</span><span>Registre : {registreConfig.filterSens === 'ENTRANT' ? 'Arrivée' : registreConfig.filterSens === 'SORTANT' ? 'Départ' : 'Correspondance générale'}</span><span>Canevas interne ARMP</span></div>
+            </header>
+            <div className="registry-paper-scroll" role="region" tabIndex={0} aria-label="Feuillet du registre">
+              <table className="registry-paper-table"><thead><tr>{registreConfig.showRowNumbers&&<th scope="col">N° d’ordre</th>}{visibleColumns.map(column=><th scope="col" key={column.key} style={{width:column.width+'%'}}>{column.label}</th>)}</tr></thead><tbody>
+                {selectedCourriers.slice(0,12).map((c,index)=><tr key={c.id}>{registreConfig.showRowNumbers&&<td>{String(index+1).padStart(3,'0')}</td>}{visibleColumns.map(column=><td key={column.key}>{getCellValue(c,column.key,new Map())}</td>)}</tr>)}
+                {previewCount === 0 && <tr><td colSpan={visibleColumns.length+1}>Aucun courrier pour cette sélection.</td></tr>}
+              </tbody></table>
+            </div>
+            <footer className="registry-paper-footer"><span>Feuillet de présentation · 12 premières inscriptions au maximum<br/>L’édition PDF contient la sélection complète.</span><div>Visa du responsable<span className="registry-visa-line" /></div><span>Cachet du service<span className="registry-stamp" /></span></footer>
+          </section>);
+
+  if(adminMode&&user?.role!==Role.SUPER_ADMIN)return <p>Paramétrage réservé à l’administrateur.</p>;
   return (
-    <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
+    <div className="registry-workbench flex flex-col h-screen overflow-hidden">
 
       {/* ── Top bar ── */}
       <div className="flex-shrink-0 bg-white border-b border-slate-200 px-6 h-14 flex items-center justify-between">
@@ -602,7 +378,8 @@ const CahierRegistre: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
+          {adminMode&&<button disabled={!settingsReady||savingSettings} onClick={()=>void saveSettings()} className="workspace-button primary">{savingSettings?'Enregistrement…':'Enregistrer la configuration'}</button>}
+          <button disabled={!settingsReady||invalidPeriod}
             onClick={() => handleGenerateRegistre(true)}
             className="h-8 px-4 flex items-center gap-2 rounded-md border border-slate-200 bg-white text-slate-700 text-xs font-medium hover:bg-slate-50 hover:border-slate-300 transition-colors"
           >
@@ -610,6 +387,7 @@ const CahierRegistre: React.FC = () => {
             Aperçu
           </button>
           <button
+            disabled={!settingsReady||invalidPeriod}
             onClick={() => handleGenerateRegistre(false)}
             className="h-8 px-4 flex items-center gap-2 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-700 transition-colors"
           >
@@ -623,7 +401,7 @@ const CahierRegistre: React.FC = () => {
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── Left nav ── */}
-        <nav className="w-52 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col py-4 gap-0.5 px-2">
+        {adminMode&&<nav className="w-52 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col py-4 gap-0.5 px-2">
           {navItems.map(item => (
             <button
               key={item.id}
@@ -647,10 +425,41 @@ const CahierRegistre: React.FC = () => {
               <p className="text-[11px] text-slate-400 mt-0.5">sur {courriers.length} total</p>
             </div>
           </div>
-        </nav>
+        </nav>}
 
         {/* ── Content panel ── */}
         <main className="flex-1 overflow-y-auto px-8 py-7">
+          {settingsMessage&&<p role="status" className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">{settingsMessage}</p>}
+          {!settingsReady&&!settingsMessage&&<p role="status">Chargement de la configuration administrateur…</p>}
+
+
+          {!adminMode&&<section className="registry-selection" aria-labelledby="registry-filters-title">
+            <header><h2 id="registry-filters-title">Filtres du cahier registre</h2><span>{previewCount} courrier{previewCount>1?'s':''} sur {courriers.length}</span><button type="button" onClick={()=>{setEntitySelection({});setRegistreConfig(previous=>({...previous,filterSens:'ALL',filterType:'ALL',filterStatut:'ALL',filterPriorite:'ALL',filterSearch:'',filterDateDebut:'',filterDateFin:'',filterMesAssignations:false,filterNonClassifies:false,filterEntityId:'ALL',filterAnnotationDG:'ALL'}));}}>Réinitialiser</button></header>
+            <div className="registry-selection-fields">
+              <label className="registry-selection-search">Rechercher<input type="search" value={registreConfig.filterSearch} onChange={handleFilterSearchChange} placeholder="N° administratif, objet, correspondant…"/></label>
+              <label>Sens<select value={registreConfig.filterSens} onChange={e=>handleFilterSens(e.target.value as RegistreConfig['filterSens'])}><option value="ALL">Tous</option><option value="ENTRANT">Arrivée</option><option value="SORTANT">Départ</option></select></label>
+              <label>Type<select value={registreConfig.filterType} onChange={e=>handleFilterType(e.target.value as RegistreConfig['filterType'])}><option value="ALL">Tous</option><option value="INTERNE">Interne</option><option value="EXTERNE">Externe</option></select></label>
+              {entityLevels.map((level,index)=>{
+                const parent=index?entitySelection[entityLevels[index-1].code]:undefined;
+                if(index&&!parent)return null;
+                const options=registryEntities.filter(entity=>entity.type===level.code&&(!parent||entity.parentId===parent));
+                return <label key={level.code}>{level.libelleSingulier}<select value={entitySelection[level.code]||''} onChange={event=>{
+                  const next=Object.fromEntries(entityLevels.slice(0,index).filter(type=>entitySelection[type.code]).map(type=>[type.code,entitySelection[type.code]]));
+                  if(event.target.value)next[level.code]=event.target.value;
+                  setEntitySelection(next);
+                  const selected=Object.values(next);setRegistreConfig(previous=>({...previous,filterEntityId:selected[selected.length-1]||'ALL'}));
+                }}><option value="">Toutes les entités de ce niveau</option>{options.map(entity=><option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
+              })}
+
+              <label>Statut<select value={registreConfig.filterStatut} onChange={e=>handleFilterStatut(e.target.value)}><option value="ALL">Tous</option>{[['ENREGISTRE','Enregistré'],['EN_ATTENTE_DG','En attente DG'],['ORIENTE_DG','Orienté DG'],['ORIENTE_DIRECTEUR','Orienté direction'],['EN_TRAITEMENT','En traitement'],['ASSIGNE','Assigné'],['TRAITE','Traité'],['ARCHIVE','Archivé']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+              <label>Réception du<input type="date" value={registreConfig.filterDateDebut} onChange={handleFilterDateDebutChange}/></label>
+              <label>Au<input type="date" value={registreConfig.filterDateFin} onChange={handleFilterDateFinChange}/></label>
+              <label>Priorité<select value={registreConfig.filterPriorite} onChange={e=>handleFilterPriorite(e.target.value)}><option value="ALL">Toutes</option>{Array.from(new Set(courriers.map(c=>c.priorite))).sort().map(priority=><option key={priority} value={priority}>{priority}</option>)}</select></label>
+            </div>
+            <div className="registry-selection-checks"><label><input type="checkbox" checked={registreConfig.filterMesAssignations} onChange={handleFilterMesAssignationsChange}/>Mes assignations</label><label><input type="checkbox" checked={registreConfig.filterNonClassifies} onChange={handleFilterNonClassifiesChange}/>Non classés uniquement</label><span>La période porte sur la date de réception.</span></div>
+            {invalidPeriod&&<p role="alert">La date de fin doit être postérieure ou égale à la date de début.</p>}
+          </section>}
+          {activeTab === 'cahier' && paperPreview}
 
           {/* ─── EN-TÊTE ─── */}
           {activeTab === 'entete' && (
@@ -683,7 +492,7 @@ const CahierRegistre: React.FC = () => {
                         className={fieldCls}
                         value={registreConfig.organisationAddress}
                         onChange={e => setRegistreConfig(p => ({ ...p, organisationAddress: e.target.value }))}
-                        placeholder="Ex : Dakar, Sénégal"
+                        placeholder="Ex : Kinshasa, République démocratique du Congo"
                       />
                     </div>
                     <div>
@@ -823,92 +632,6 @@ const CahierRegistre: React.FC = () => {
             </div>
           )}
 
-          {/* ─── FILTRES ─── */}
-          {activeTab === 'filtres' && (
-            <div className="max-w-2xl">
-              <h2 className="text-base font-semibold text-slate-900 mb-5">Filtres de sélection</h2>
-
-              <div className="space-y-6">
-                {/* Sens */}
-                <div>
-                  <SectionLabel>Sens du courrier</SectionLabel>
-                  <div className="flex gap-1.5">
-                    <Chip active={registreConfig.filterSens === 'ALL'} onClick={() => handleFilterSens('ALL')}>Tous</Chip>
-                    <Chip active={registreConfig.filterSens === 'ENTRANT'} onClick={() => handleFilterSens('ENTRANT')}>Entrant</Chip>
-                    <Chip active={registreConfig.filterSens === 'SORTANT'} onClick={() => handleFilterSens('SORTANT')}>Sortant</Chip>
-                  </div>
-                </div>
-
-                {/* Type */}
-                <div>
-                  <SectionLabel>Type</SectionLabel>
-                  <div className="flex gap-1.5">
-                    <Chip active={registreConfig.filterType === 'ALL'} onClick={() => handleFilterType('ALL')}>Tous</Chip>
-                    <Chip active={registreConfig.filterType === 'EXTERNE'} onClick={() => handleFilterType('EXTERNE')}>Externe</Chip>
-                    <Chip active={registreConfig.filterType === 'INTERNE'} onClick={() => handleFilterType('INTERNE')}>Interne</Chip>
-                  </div>
-                </div>
-
-                {/* Statut */}
-                <div>
-                  <SectionLabel>Statut</SectionLabel>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Chip active={registreConfig.filterStatut === 'ALL'} onClick={() => handleFilterStatut('ALL')}>Tous</Chip>
-                    <Chip active={registreConfig.filterStatut === 'EN_ATTENTE_DG'} onClick={() => handleFilterStatut('EN_ATTENTE_DG')}>En attente</Chip>
-                    <Chip active={registreConfig.filterStatut === 'ORIENTE_DG'} onClick={() => handleFilterStatut('ORIENTE_DG')}>Orienté DG</Chip>
-                    <Chip active={registreConfig.filterStatut === 'EN_TRAITEMENT'} onClick={() => handleFilterStatut('EN_TRAITEMENT')}>En cours</Chip>
-                    <Chip active={registreConfig.filterStatut === 'ASSIGNE'} onClick={() => handleFilterStatut('ASSIGNE')}>Assigné</Chip>
-                    <Chip active={registreConfig.filterStatut === 'TRAITE'} onClick={() => handleFilterStatut('TRAITE')}>Traité</Chip>
-                    <Chip active={registreConfig.filterStatut === 'ARCHIVE'} onClick={() => handleFilterStatut('ARCHIVE')}>Archivé</Chip>
-                  </div>
-                </div>
-
-                <Divider />
-
-                {/* Période */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <SectionLabel>Date début</SectionLabel>
-                    <input type="date" className={fieldCls} value={registreConfig.filterDateDebut} onChange={handleFilterDateDebutChange} />
-                  </div>
-                  <div>
-                    <SectionLabel>Date fin</SectionLabel>
-                    <input type="date" className={fieldCls} value={registreConfig.filterDateFin} onChange={handleFilterDateFinChange} />
-                  </div>
-                </div>
-
-                {/* Recherche */}
-                <div>
-                  <SectionLabel>Recherche textuelle</SectionLabel>
-                  <input
-                    type="text"
-                    className={fieldCls}
-                    value={registreConfig.filterSearch}
-                    onChange={handleFilterSearchChange}
-                    placeholder="Numéro, objet, expéditeur, destinataire…"
-                  />
-                </div>
-
-                <Divider />
-
-                <div className="space-y-3">
-                  <Toggle
-                    checked={registreConfig.filterMesAssignations}
-                    onChange={v => setRegistreConfig(p => ({ ...p, filterMesAssignations: v }))}
-                    label="Mes assignations uniquement"
-                    description="N'inclut que les courriers qui vous sont assignés"
-                  />
-                  <Toggle
-                    checked={registreConfig.filterNonClassifies}
-                    onChange={v => setRegistreConfig(p => ({ ...p, filterNonClassifies: v }))}
-                    label="Non classés uniquement"
-                    description="N'inclut que les courriers sans catégorie"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* ─── COLONNES ─── */}
           {activeTab === 'colonnes' && (
             <div className="max-w-lg">
@@ -968,30 +691,25 @@ const CahierRegistre: React.FC = () => {
 
       {/* ── Modal Aperçu PDF ── */}
       {showPreviewModal && previewUrl && (
-        <div
-          className="fixed inset-0 z-[50000] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={() => { URL.revokeObjectURL(previewUrl); setShowPreviewModal(false); setPreviewUrl(null); }}
-        >
-          <div
-            className="bg-white rounded-xl shadow-2xl w-full max-w-[96vw] h-[92vh] flex flex-col overflow-hidden border border-slate-200/80"
-            onClick={e => e.stopPropagation()}
-          >
+        <RegisterPreviewDialog onClose={() => { URL.revokeObjectURL(previewUrl); setShowPreviewModal(false); setPreviewUrl(null); }}>
             {/* Modal header */}
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3 flex-shrink-0">
               <div className="flex items-center gap-2.5">
                 <FontAwesomeIcon icon={faFileAlt} className="text-slate-400 text-sm" />
-                <span className="text-sm font-semibold text-slate-800">Aperçu — Cahier Registre</span>
+                <span className="text-sm font-semibold text-slate-800">Aperçu papier — Cahier Registre</span>
                 <span className="text-xs text-slate-400 font-normal">· {previewCount} courrier{previewCount > 1 ? 's' : ''}</span>
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handleGenerateRegistre(false)}
+                  disabled={!settingsReady||invalidPeriod}
+            onClick={() => handleGenerateRegistre(false)}
                   className="h-8 px-4 flex items-center gap-2 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-700 transition-colors"
                 >
                   <FontAwesomeIcon icon={faPrint} />
                   Télécharger le PDF
                 </button>
                 <button
+                  aria-label="Fermer l’aperçu"
                   onClick={() => { URL.revokeObjectURL(previewUrl); setShowPreviewModal(false); setPreviewUrl(null); }}
                   className="h-8 w-8 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                 >
@@ -1000,15 +718,10 @@ const CahierRegistre: React.FC = () => {
               </div>
             </div>
             {/* PDF viewer */}
-            <div className="flex-1 min-h-0 bg-slate-100 p-3">
-              <iframe
-                src={previewUrl}
-                className="w-full h-full rounded-lg border border-slate-200"
-                title="Aperçu du registre PDF"
-              />
+            <div className="registry-modal-paper flex-1 min-h-0 bg-slate-100 p-3">
+              {paperPreview}
             </div>
-          </div>
-        </div>
+        </RegisterPreviewDialog>
       )}
     </div>
   );

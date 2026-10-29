@@ -51,3 +51,12 @@ Thumbs.db
 # Vercel
 .vercel
 
+
+# Private deployment credentials and local backups
+.env.*
+!.env.example
+*.pem
+*.key
+id_ed25519*
+*.sql.gz
+*.dump

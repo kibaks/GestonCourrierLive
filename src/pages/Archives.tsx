@@ -1,3 +1,4 @@
+import { courrierReferences, courrierSearchReferences } from '../utils/courrierReferences';
 import React, { useMemo, useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -236,7 +237,7 @@ const Archives: React.FC = () => {
       const matchesSearch =
         q === '' ||
         archive.numeroClassement.toLowerCase().includes(q) ||
-        (courrier?.numero || '').toLowerCase().includes(q) ||
+        (courrier ? courrierSearchReferences(courrier) : '').toLowerCase().includes(q) ||
         (courrier?.objet || '').toLowerCase().includes(q);
       const matchesStatut = filterStatut === '' || archive.statut === filterStatut;
       return matchesSearch && matchesStatut;
@@ -619,7 +620,7 @@ const Archives: React.FC = () => {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2 mb-1">
-                          <span className="font-bold text-slate-900">{courrier.numero}</span>
+                          <span className="font-bold text-slate-900">{courrierReferences(courrier)}</span>
                           <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200/80">Traité</span>
                         </div>
                         <p className="text-sm text-slate-600 truncate mb-2">{courrier.objet?.replace(/<[^>]*>/g, '') || ''}</p>
@@ -1133,7 +1134,7 @@ const Archives: React.FC = () => {
                     <div className="space-y-4">
                       <div>
                         <label className="text-xs font-medium text-surface-500 uppercase mb-1 block">Numéro</label>
-                        <p className="text-lg font-bold text-surface-900">{selectedCourrier.numero}</p>
+                        <p className="text-lg font-bold text-surface-900">{courrierReferences(selectedCourrier)}</p>
                       </div>
                       <div>
                         <label className="text-xs font-medium text-surface-500 uppercase mb-1 block">Objet</label>
@@ -1410,7 +1411,7 @@ const Archives: React.FC = () => {
                       <div className="space-y-4">
                         <div className="flex justify-between">
                           <span className="text-surface-600">Courrier:</span>
-                          <span className="font-semibold text-surface-900">{selectedCourrier.numero}</span>
+                          <span className="font-semibold text-surface-900">{courrierReferences(selectedCourrier)}</span>
                         </div>
                         
                         {/* Arborescence de localisation en prévisualisation */}

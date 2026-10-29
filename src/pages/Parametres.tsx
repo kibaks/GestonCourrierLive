@@ -1,3 +1,9 @@
+import ProcedureSettingsPanel from '../components/ProcedureSettingsPanel';
+import CahierRegistre from './CahierRegistre';
+import OperationsPanel from '../components/OperationsPanel';
+import AuditJournal from '../components/AuditJournal';
+import CommunicationSettingsPanel from '../components/CommunicationSettingsPanel';
+import GestionNumerotation from './admin/GestionNumerotation';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
@@ -238,6 +244,12 @@ const SyncFirestoreToLaravelButton: React.FC = () => {
 };
 
 type TabId =
+  | 'procedures'
+  | 'operations'
+  | 'audit'
+  | 'communications'
+  | 'cahier-registre'
+  | 'numerotation'
   | 'dashboard'
   | 'utilisateurs'
   | 'roles'
@@ -260,10 +272,12 @@ const Parametres: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
 
   useEffect(() => {
+    const requested = new URLSearchParams(location.search).get('onglet');
+    if (requested === 'procedures' || requested === 'cahier-registre' || requested === 'numerotation' || requested === 'communications' || requested === 'audit' || requested === 'operations') setActiveTab(requested);
     if (location.pathname === '/admin/cachet-accuse') {
       setActiveTab('cachet-accuse');
     }
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
@@ -636,6 +650,19 @@ const Parametres: React.FC = () => {
       borderColor: 'border-rose-200'
     },
     {
+      id: 'operations' as const, label: 'État et sauvegardes', icon: faCog, description: 'Disponibilité et sauvegardes du serveur', gradient: 'from-slate-600 to-blue-700', bgLight: 'bg-slate-50', textColor: 'text-slate-600', borderColor: 'border-slate-200'
+    }, {
+      id: 'audit' as const, label: 'Journal d’activité', icon: faCog, description: 'Historique des opérations et contrôles d’accès', gradient: 'from-slate-600 to-blue-700', bgLight: 'bg-slate-50', textColor: 'text-slate-600', borderColor: 'border-slate-200'
+    }, {
+      id: 'procedures' as const, label: 'Procédures', icon: faTasks, description: 'Circuits automatiques, responsables et délais', gradient: 'from-blue-600 to-indigo-600', bgLight: 'bg-blue-50', textColor: 'text-blue-600', borderColor: 'border-blue-200'
+    }, {
+      id: 'communications' as const, label: 'Communications', icon: faCog, description: 'E-mail, SMS, WhatsApp et suivi des envois', gradient: 'from-indigo-500 to-blue-600', bgLight: 'bg-indigo-50', textColor: 'text-indigo-600', borderColor: 'border-indigo-200'
+    }, {
+      id: 'cahier-registre' as const, label: 'Cahier registre', icon: faClipboardList, description: 'En-tête, papier et colonnes du registre', gradient: 'from-indigo-500 to-blue-600', bgLight: 'bg-indigo-50', textColor: 'text-indigo-600', borderColor: 'border-indigo-200'
+    }, {
+      id: 'numerotation' as const, label: 'Numérotation', icon: faClipboardList, description: 'Numéro système et registres par organigramme', gradient: 'from-indigo-500 to-blue-600', bgLight: 'bg-indigo-50', textColor: 'text-indigo-600', borderColor: 'border-indigo-200'
+    },
+    {
       id: 'import-fichiers' as const,
       label: 'Import de fichiers',
       icon: faUpload,
@@ -677,7 +704,7 @@ const Parametres: React.FC = () => {
     }
   ];
 
-  const filteredTabs = tabs.filter(tab => 
+  const filteredTabs = tabs.filter(tab => !['procedures', 'cahier-registre', 'numerotation', 'communications', 'audit', 'operations'].includes(tab.id) || hasRole(Role.SUPER_ADMIN)).filter(tab =>
     tab.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
     tab.description.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -997,6 +1024,11 @@ const Parametres: React.FC = () => {
 
         {/* Contenu des onglets dans la page principale */}
         <div className="mt-8">
+                  {activeTab === 'operations' && hasRole(Role.SUPER_ADMIN) && <OperationsPanel />}
+                  {activeTab === 'audit' && hasRole(Role.SUPER_ADMIN) && <AuditJournal />}
+                  {activeTab === 'communications' && hasRole(Role.SUPER_ADMIN) && <CommunicationSettingsPanel />}
+                  {activeTab === 'cahier-registre' && hasRole(Role.SUPER_ADMIN) && <CahierRegistre adminMode />}
+                  {activeTab === 'numerotation' && <GestionNumerotation />}
                   {activeTab === 'utilisateurs' && <GestionUtilisateurs />}
                   {activeTab === 'roles' && <GestionRoles />}
           {activeTab === 'responsabilites' && <GestionResponsabilites />}
@@ -1058,6 +1090,7 @@ const Parametres: React.FC = () => {
               </div>
             </div>
           )}
+          {activeTab === 'procedures' && hasRole(Role.SUPER_ADMIN) && <ProcedureSettingsPanel />}
           {activeTab === 'parametres-export' && <GestionParametresExport />}
           {activeTab === 'import-fichiers' && <ParametresImportFichiers />}
           {activeTab === 'scanners' && <GestionScanners />}

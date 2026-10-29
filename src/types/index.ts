@@ -209,8 +209,15 @@ export interface CategorieCourrier {
 }
 
 export interface Courrier {
+  isRead?: boolean;
+  readAt?: string | null;
   id: string;
   numero: string;
+  numeroSysteme?: string;
+  clientRequestId?: string | null;
+  numeroOrganisationnel?: string | null;
+  entiteNumerotationId?: string | null;
+  numerotationSnapshot?: Record<string, unknown> | null;
   type: TypeCourrier;
   /** Entrant ou sortant — utilisé pour l'affichage et le formulaire. */
   sens?: SensCourrier;

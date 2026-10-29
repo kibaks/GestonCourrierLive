@@ -1,3 +1,6 @@
+import CourrierWorkflowPanel from '../components/courriers/CourrierWorkflowPanel';
+import { markCourrierRead } from '../services/courrierReadService';
+import { courrierReferences, courrierSearchReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
@@ -184,7 +187,7 @@ const DetailCourrier: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, authReady, locked } = useAuth();
   
   // États pour le courrier et les données associées
   const [courrier, setCourrier] = useState<Courrier | null>(null);
@@ -236,6 +239,7 @@ const DetailCourrier: React.FC = () => {
   const [showInlineAnnotation, setShowInlineAnnotation] = useState(false);
   const [newAnnotationContent, setNewAnnotationContent] = useState('');
   const [newAnnotationType, setNewAnnotationType] = useState<'MINUTE' | 'NOTE' | 'COMMENTAIRE'>('COMMENTAIRE');
+  const [annotationAccess,setAnnotationAccess]=useState<{allowed:boolean;reason:string|null}>({allowed:false,reason:'Chargement des droits d’annotation…'});
   const [annotationSubmitting, setAnnotationSubmitting] = useState(false);
   const [annotationResponseDecision, setAnnotationResponseDecision] = useState<WorkflowDecision | undefined>(undefined);
 
@@ -615,33 +619,16 @@ const DetailCourrier: React.FC = () => {
 
     setLoadingCourrier(true);
 
-    let courrierData = courrierService.getCourrierById(id);
-    
-    // Si le courrier n'est pas trouvé localement (store Redux vide après refresh), charger depuis l'API
-    if (!courrierData && laravelApiService.isConfigured()) {
-      try {
-        console.log('[DetailCourrier] Courrier non trouvé localement, chargement depuis API...');
-        await store.dispatch(fetchCourriers(undefined));
-        // Réessayer de trouver le courrier après le chargement
-        courrierData = courrierService.getCourrierById(id);
-      } catch (e) {
-        console.error('[DetailCourrier] Erreur lors du chargement des courriers depuis API:', e);
-      }
-    }
+    // The authenticated API owns both freshness and access scope for deep links.
+    let courrierData: Courrier | undefined;
+    if (laravelApiService.isConfigured()) {
+      try { courrierData=(await laravelApiService.getCourrierById(id))??undefined; }
+      catch (error) { console.error('Chargement du courrier impossible',error); }
+    } else courrierData=courrierService.getCourrierById(id);
 
-    // Dernier recours : charger le courrier individuel directement par ID (cas d'un accès depuis notification)
-    if (!courrierData && laravelApiService.isConfigured()) {
-      try {
-        console.log('[DetailCourrier] Tentative chargement individuel du courrier:', id);
-        courrierData = (await laravelApiService.getCourrierById(id)) ?? undefined;
-      } catch (e) {
-        console.error('[DetailCourrier] Erreur chargement individuel:', e);
-      }
-    }
-    
     // Vérifier l'accès APRÈS avoir chargé le courrier (évite les faux refus après refresh)
     // SUPER_ADMIN, DG et SECRETAIRE ont accès à tous les courriers (aligné avec le backend CourrierAccessService)
-    if (courrierData && user.role !== Role.SUPER_ADMIN && user.role !== Role.DIRECTEUR_GENERAL && user.role !== Role.SECRETAIRE) {
+    if (courrierData && !laravelApiService.isConfigured() && user.role !== Role.SUPER_ADMIN && user.role !== Role.DIRECTEUR_GENERAL && user.role !== Role.SECRETAIRE) {
       // L'expéditeur (enregistrePar) a toujours accès à son propre courrier
       const isExpéditeur = courrierData.enregistrePar === user.id;
       // Un utilisateur ayant une notification liée à ce courrier a toujours accès
@@ -661,6 +648,7 @@ const DetailCourrier: React.FC = () => {
     
     if (courrierData) {
       setCourrier({ ...courrierData });
+      if (!courrierData.isRead) void markCourrierRead(courrierData.id, user.id).catch(error => console.warn('Lecture non enregistrée', error));
       // Charger les assignations de manière asynchrone
       let assignationsData: Assignation[] = [];
       try {
@@ -705,57 +693,6 @@ const DetailCourrier: React.FC = () => {
         setAnnotations([]);
       }
 
-      // Si le courrier est orienté/en attente/assigné et a des annotations ou des étapes workflow existantes, le passer en traitement
-      const statutsOrientation = [StatutCourrier.EN_ATTENTE_DG, StatutCourrier.ORIENTE_DG, StatutCourrier.ORIENTE_DIRECTEUR, StatutCourrier.ASSIGNE];
-      const hasActivity = annotationsData.length > 0 || workflowsLoaded.length > 0;
-
-      // Terminer automatiquement les assignations dont l'assigné a réellement produit une annotation ou une étape
-      if (hasActivity) {
-        // Résoudre un identifiant utilisateur en clé stable (email si trouvé, sinon l'ID)
-        const resolveUserKey = (uid: unknown): string => {
-          const idStr = String(uid ?? '');
-          if (!idStr) return '';
-          const u = userService.getUserById(idStr);
-          return u?.email ? String(u.email).toLowerCase() : idStr;
-        };
-        const auteursActivite = new Set<string>();
-        annotationsData.forEach(a => { const k = resolveUserKey(a.auteur); if (k) auteursActivite.add(k); });
-        workflowsLoaded.forEach(w => { const k = resolveUserKey((w as any).creePar); if (k) auteursActivite.add(k); });
-        console.log('🔎 [DetailCourrier] Auteurs activité:', Array.from(auteursActivite), '| Assignés:', assignationsData.map(a => `${a.assigneA}→${resolveUserKey(a.assigneA)} (${a.statut})`));
-        const assignationsATerminer = assignationsData.filter(a =>
-          (a.statut === 'EN_ATTENTE' || a.statut === 'EN_COURS') &&
-          auteursActivite.has(resolveUserKey(a.assigneA))
-        );
-        if (assignationsATerminer.length > 0) {
-          try {
-            await Promise.all(
-              assignationsATerminer.map(a => courrierService.updateAssignation(a.id, { statut: 'TERMINE' }))
-            );
-            console.log(`✅ [DetailCourrier] ${assignationsATerminer.length} assignation(s) terminée(s) automatiquement (l'assigné a déjà agi)`);
-            // Mettre à jour l'état local immédiatement
-            const idsTermines = new Set(assignationsATerminer.map(a => a.id));
-            assignationsData = assignationsData.map(a =>
-              idsTermines.has(a.id) ? { ...a, statut: 'TERMINE' as any } : a
-            );
-            setAssignations(assignationsData);
-          } catch (e) {
-            console.error('Erreur lors de la terminaison automatique des assignations:', e);
-          }
-        }
-      }
-
-      if (statutsOrientation.includes(courrierData.statut) && hasActivity) {
-        try {
-          await courrierService.updateCourrier(courrierData.id, { statut: StatutCourrier.EN_TRAITEMENT });
-          console.log('✅ [DetailCourrier] Courrier avec annotations existantes mis en traitement');
-          // Recharger le courrier pour mettre à jour l'affichage (forcer le statut si le cache est en retard)
-          const updatedCourrier = courrierService.getCourrierById(courrierData.id);
-          setCourrier({ ...(updatedCourrier || courrierData), statut: StatutCourrier.EN_TRAITEMENT });
-        } catch (e) {
-          console.error('Erreur lors du changement de statut du courrier:', e);
-        }
-      }
-
       // Charger les fichiers avec attente et gestion d'erreur
       try {
         await loadDossiersFichiers(id);
@@ -776,10 +713,10 @@ const DetailCourrier: React.FC = () => {
 
   // Charger le courrier au montage et quand l'ID change
   useEffect(() => {
-    if (id) {
-      loadCourrier();
+    if (id && user?.id && authReady && !locked) {
+      void loadCourrier();
     }
-  }, [id]);
+  }, [id, user?.id, authReady, locked]);
 
   // Fonction pour détecter les actions automatiques basées sur le statut
   const detectActionsFromStatus = (statut: string, courrier: Courrier): Array<{
@@ -877,7 +814,7 @@ const DetailCourrier: React.FC = () => {
           type: 'enregistrement',
           date: (courrier as any).dateCreation || (courrier as any).dateCreation || new Date(),
           title: 'Enregistrement du courrier',
-          description: `Courrier ${courrier.numero} enregistré${courrier.objet ? ` - ${courrier.objet}` : ''}`,
+          description: `Courrier ${courrierReferences(courrier)} enregistré${courrier.objet ? ` - ${courrier.objet}` : ''}`,
           status: 'TERMINE',
           user: createdByUser,
           isLoading: false,
@@ -1235,8 +1172,7 @@ const DetailCourrier: React.FC = () => {
   // ——— P1 : Annotations sur le document (PDF, style Word/PDF) ———
   // Réservé au Directeur Général (+ SUPER_ADMIN technique)
   const canAnnotateDocument =
-    hasRole(Role.DIRECTEUR_GENERAL) ||
-    hasRole(Role.SUPER_ADMIN);
+    annotationAccess.allowed && (hasRole(Role.DIRECTEUR_GENERAL) || hasRole(Role.SUPER_ADMIN));
 
   // P10 — Chargement des cibles possibles (entités + utilisateurs) quand le DG
   // ouvre la visionneuse. Entités : API Laravel (vrais IDs de la base) ;
@@ -1360,6 +1296,7 @@ const DetailCourrier: React.FC = () => {
   const commitInlineAnnotation = async () => {
     const trimmed = newAnnotationContent.trim();
     if (!trimmed || !user?.id || !courrier?.id || annotationSubmitting) return;
+    if(!annotationAccess.allowed){showAlert(annotationAccess.reason||'Annotation non autorisée à cette étape.','error');return;}
     setAnnotationSubmitting(true);
     try {
       const created = await courrierService.createAnnotation({
@@ -1369,50 +1306,6 @@ const DetailCourrier: React.FC = () => {
         type: newAnnotationType,
       });
       setAnnotations(prev => [...prev, created]);
-      if (window.courrierStatusManager?.markAsAnnotated) {
-        window.courrierStatusManager.markAsAnnotated(courrier.id).catch(() => {});
-      }
-      const isManagement = taskCompletionService.completesByAnnotationOrStep(user.role);
-      if (isManagement) {
-        realTimeTaskSyncService.notifyTaskCompleted(courrier.id, courrier.numero || '', user.id, user.role, 'annotation_created', 'Annotation créée');
-      }
-
-      // ── Mises à jour OPTIMISTES : l'UI réagit instantanément, les appels API
-      //    partent en arrière-plan (pas de rechargement complet bloquant) ──────────
-      const bgTasks: Promise<unknown>[] = [];
-
-      // Si le courrier est en attente DG ou orienté, le passer en traitement quand une annotation est créée
-      const doitPasserEnTraitement =
-        courrier.statut === StatutCourrier.EN_ATTENTE_DG ||
-        courrier.statut === StatutCourrier.ORIENTE_DG ||
-        courrier.statut === StatutCourrier.ORIENTE_DIRECTEUR ||
-        courrier.statut === StatutCourrier.ASSIGNE;
-      if (doitPasserEnTraitement) {
-        // Mise à jour locale immédiate
-        setCourrier(prev => prev ? { ...prev, statut: StatutCourrier.EN_TRAITEMENT } : prev);
-        bgTasks.push(
-          courrierService.updateCourrier(courrier.id, { statut: StatutCourrier.EN_TRAITEMENT })
-            .catch(e => console.error('Erreur lors du changement de statut du courrier:', e))
-        );
-      }
-
-      // Si le DG a une assignation active, la terminer automatiquement
-      if (user.role === Role.DIRECTEUR_GENERAL) {
-        const dgAssignation = assignations.find(
-          a => String(a.assigneA) === String(user.id) && a.statut !== 'TERMINE'
-        );
-        if (dgAssignation) {
-          // Mise à jour locale immédiate
-          setAssignations(prev => prev.map(a =>
-            a.id === dgAssignation.id ? { ...a, statut: 'TERMINE' as any } : a
-          ));
-          bgTasks.push(
-            courrierService.updateAssignation(dgAssignation.id, { statut: 'TERMINE' })
-              .catch(e => console.error('Erreur lors de la terminaison automatique de l\'assignation:', e))
-          );
-        }
-      }
-
       // Fermer le formulaire et confirmer immédiatement (UI instantanée)
       setShowInlineAnnotation(false);
       setNewAnnotationContent('');
@@ -1420,9 +1313,7 @@ const DetailCourrier: React.FC = () => {
       showAlert('Annotation ajoutée avec succès', 'success');
 
       // Rafraîchir la timeline en arrière-plan une fois les écritures terminées
-      Promise.allSettled(bgTasks).then(() => {
-        loadTasksTimeline().catch(() => {});
-      });
+      void loadTasksTimeline();
     } catch (err: any) {
       showAlert(err?.message || 'Erreur lors de l\'ajout de l\'annotation', 'error');
     } finally {
@@ -1517,58 +1408,14 @@ const DetailCourrier: React.FC = () => {
         });
       }
 
-      // ── Mises à jour OPTIMISTES : l'UI réagit instantanément, les appels API
-      //    partent en arrière-plan (pas de rechargement complet bloquant) ──────────
-      const bgTasks: Promise<unknown>[] = [];
-
-      // Mettre à jour la liste des workflows localement immédiatement
       setWorkflows(prev => [...prev, created]);
-
-      // Notifier immédiatement
-      realTimeTaskSyncService.notifyWorkflowCreated(
-        courrier.id, courrier.numero || '', user.id, user.role,
-        row.estCondition ? row.condition : row.etape
-      );
-
-      // Si le courrier est en attente DG ou orienté, le passer en traitement (optimiste)
-      const doitPasserEnTraitement =
-        courrier.statut === StatutCourrier.EN_ATTENTE_DG ||
-        courrier.statut === StatutCourrier.ORIENTE_DG ||
-        courrier.statut === StatutCourrier.ORIENTE_DIRECTEUR ||
-        courrier.statut === StatutCourrier.ASSIGNE;
-      if (doitPasserEnTraitement) {
-        setCourrier(prev => prev ? { ...prev, statut: StatutCourrier.EN_TRAITEMENT } : prev);
-        bgTasks.push(
-          courrierService.updateCourrier(courrier.id, { statut: StatutCourrier.EN_TRAITEMENT })
-            .catch(e => console.error('Erreur lors du changement de statut:', e))
-        );
-      }
-
-      // Si le DG a une assignation active, la terminer automatiquement (optimiste)
-      if (user.role === Role.DIRECTEUR_GENERAL) {
-        const dgAssignation = assignations.find(
-          a => String(a.assigneA) === String(user.id) && a.statut !== 'TERMINE'
-        );
-        if (dgAssignation) {
-          setAssignations(prev => prev.map(a =>
-            a.id === dgAssignation.id ? { ...a, statut: 'TERMINE' as any } : a
-          ));
-          bgTasks.push(
-            courrierService.updateAssignation(dgAssignation.id, { statut: 'TERMINE' })
-              .catch(e => console.error('Erreur terminaison assignation:', e))
-          );
-        }
-      }
-
       // Confirmer immédiatement (UI instantanée)
       setWfRows(prev => prev.map(r => r.id === rowId ? { ...r, saved: true, saving: false } : r));
       showAlert('Étape créée avec succès', 'success');
 
       // Rafraîchir les données en arrière-plan une fois les écritures terminées
-      Promise.allSettled(bgTasks).then(() => {
-        loadWorkflows().catch(() => {});
-        loadTasksTimeline().catch(() => {});
-      });
+      void loadWorkflows();
+      void loadTasksTimeline();
     } catch (err: any) {
       showAlert(err?.message || 'Erreur lors de la création', 'error');
       setWfRows(prev => prev.map(r => r.id === rowId ? { ...r, saving: false } : r));
@@ -1644,13 +1491,13 @@ const DetailCourrier: React.FC = () => {
           userId: c.enregistrePar,
           type: 'courrier',
           title: 'Accusé de réception disponible',
-          message: `Votre courrier "${c.numero}" a été reçu par le destinataire. L'accusé de réception est disponible.`,
+          message: `Votre courrier "${courrierReferences(c)}" a été reçu par le destinataire. L'accusé de réception est disponible.`,
           relatedId: c.id,
           relatedType: 'courrier',
           priority: 'normal',
           actionUrl: `/courriers/${c.id}`,
           metadata: {
-            courrierNumero: c.numero,
+            courrierNumero: courrierReferences(c),
             expediteur: c.expediteur,
             destinataire: c.destinataire,
             type: 'accuse_reception_disponible',
@@ -2246,67 +2093,26 @@ const DetailCourrier: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="courrier-detail-page space-y-6">
       {/* En-tête dans la charte : bandeau gradient (aligné Planning / Dashboard) */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-800 via-slate-800 to-blue-900 px-6 sm:px-8 py-6 sm:py-8 shadow-xl border border-slate-700/50">
         <div className="absolute inset-0 bg-mesh opacity-40" aria-hidden />
-        <div className="relative flex flex-col gap-5">
+        <div className="relative flex flex-col gap-3">
           <nav className="flex items-center gap-2 text-sm">
             <Link to="/courriers" className="text-slate-300 hover:text-white font-medium transition-colors">
               Liste des courriers
             </Link>
-            <FontAwesomeIcon icon={faChevronRight} className="text-slate-500 text-xs" />
-            <span className="text-white font-semibold">Courrier {courrier.numero}</span>
           </nav>
-          {/* Direction / Service / Sous-service concernés */}
-          {(courrier.direction || courrier.service || (courrier.extraFields as Record<string, string>)?.['sousService']) && (
-            <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl bg-white/10 backdrop-blur border border-white/20">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 mr-1">Entité concernée</span>
-              {courrier.direction && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/15 border border-white/20 text-slate-200 text-sm font-medium">
-                  <FontAwesomeIcon icon={faBuilding} className="text-amber-300" />
-                  {courrier.direction}
-                </span>
-              )}
-              {courrier.service && (
-                <>
-                  {courrier.direction && <FontAwesomeIcon icon={faChevronRight} className="text-slate-500 text-xs" />}
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/15 border border-white/20 text-slate-200 text-sm font-medium">
-                    <FontAwesomeIcon icon={faUsers} className="text-blue-300" />
-                    {courrier.service}
-                  </span>
-                </>
-              )}
-              {(courrier.extraFields as Record<string, string>)?.['sousService'] && (
-                <>
-                  {(courrier.direction || courrier.service) && <FontAwesomeIcon icon={faChevronRight} className="text-slate-500 text-xs" />}
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/15 border border-white/20 text-slate-200 text-sm font-medium">
-                    <FontAwesomeIcon icon={faFolder} className="text-emerald-300" />
-                    {(courrier.extraFields as Record<string, string>)['sousService']}
-                  </span>
-                </>
-              )}
-            </div>
-          )}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center shadow-lg border border-white/20 flex-shrink-0">
-                <FontAwesomeIcon icon={courrier.type === TypeCourrier.EXTERNE ? faEnvelope : faEnvelopeOpen} className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
-              </div>
+          <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+            <div className="flex min-w-0 flex-1 items-center gap-4">
               <div className="min-w-0">
                 <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                  Courrier {courrier.numero}
+                  {courrierReferences(courrier)}
                 </h1>
                 <p className="mt-1 text-slate-300 text-sm sm:text-base line-clamp-2">
                   {courrier.objet?.replace(/<[^>]*>/g, '') || 'Détail du courrier'}
                 </p>
-                <div className="flex flex-wrap items-center gap-2 mt-3">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/15 border border-white/20 text-slate-200">
-                    {courrier.sens === SensCourrier.SORTANT ? 'Courrier sortant' : 'Courrier entrant'}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/15 border border-white/20 text-slate-200">
-                    {getPrioriteLabel(courrier.priorite)}
-                  </span>
+                <div className="mt-2">
                   <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/15 border border-white/20 text-slate-200">
                     {courrier.statut === StatutCourrier.ENREGISTRE ? 'Enregistré' :
                      courrier.statut === StatutCourrier.EN_ATTENTE_DG ? 'En attente DG' :
@@ -2318,24 +2124,20 @@ const DetailCourrier: React.FC = () => {
                      courrier.statut === StatutCourrier.ARCHIVE ? 'Archivé' :
                      String(courrier.statut).replace(/_/g, ' ')}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/15 border border-white/20 text-slate-200">
-                    <FontAwesomeIcon icon={courrier.type === TypeCourrier.EXTERNE ? faEnvelope : faEnvelopeOpen} className="opacity-80" />
-                    {courrier.type}
-                  </span>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+              <a href={`/courriers/${id}?mode=popout`} target="_blank" rel="noopener noreferrer" className="courrier-detail-popout" aria-label="Ouvrir à part" title="Ouvrir ce courrier dans une fenêtre séparée"><FontAwesomeIcon icon={faExternalLinkAlt}/></a>
               {/* Bouton de modification pour les secrétaires et admins */}
               {(hasRole(Role.SECRETAIRE) || hasRole(Role.SUPER_ADMIN) || hasRole(Role.DIRECTEUR_GENERAL)) && (
                 <button
                   type="button"
                   onClick={() => navigate(`/enregistrer?id=${id}`)}
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300/40 bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-white text-sm font-semibold hover:from-amber-500/30 hover:to-orange-500/30 transition-all backdrop-blur shadow-lg shadow-amber-500/20"
-                  title="Modifier le courrier"
+                  aria-label="Modifier le courrier" title="Modifier le courrier"
                 >
                   <FontAwesomeIcon icon={faEdit} />
-                  Modifier
                 </button>
               )}
               
@@ -2343,7 +2145,7 @@ const DetailCourrier: React.FC = () => {
                   La cible est déterminée par le DESTINATAIRE du courrier :
                   Direction Générale → DG ; direction X → directeur de X.
                   Repli : destinataire non reconnu → sélection manuelle (DG ou directeur). */}
-              {(isDGSecretary(user) || user?.role === Role.SUPER_ADMIN) && (() => {
+              {courrier.statut !== StatutCourrier.TRAITE && courrier.statut !== StatutCourrier.ARCHIVE && (isDGSecretary(user) || user?.role === Role.SUPER_ADMIN) && (() => {
                 if (!courrier || !user) return null;
                 const usersList = adminService.getAllUsers();
                 const cible = resolveOrientationTarget(courrier, usersList);
@@ -2430,9 +2232,9 @@ const DetailCourrier: React.FC = () => {
                               'Orientation',
                               completionCheck.reason
                             );
-                            showAlert(`Courrier ${courrier?.numero} orienté vers ${effectiveCible.target.nom}.\n\n${completionCheck.reason}`, 'success');
+                            showAlert(`Courrier ${courrier ? courrierReferences(courrier) : ""} orienté vers ${effectiveCible.target.nom}.\n\n${completionCheck.reason}`, 'success');
                           } else {
-                            showAlert(`Courrier ${courrier?.numero} orienté vers ${effectiveCible.target.nom}.`, 'success');
+                            showAlert(`Courrier ${courrier ? courrierReferences(courrier) : ""} orienté vers ${effectiveCible.target.nom}.`, 'success');
                           }
                         } catch (_) {
                           showAlert('Erreur lors de l\'orientation.', 'error');
@@ -2440,7 +2242,7 @@ const DetailCourrier: React.FC = () => {
                       }}
                     >
                       <FontAwesomeIcon icon={faCompass} />
-                      {already ? 'Déjà orienté' : effectiveCible ? `Orienter vers ${effectiveCible.target.nom}` : 'Orienter…'}
+                      {already ? 'Déjà orienté' : 'Orienter'}
                     </button>
                   </div>
                 );
@@ -2461,16 +2263,23 @@ const DetailCourrier: React.FC = () => {
                   setDrawerOpen(true);
                 }}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/30 bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-all backdrop-blur"
-                title="Ouvrir la liste des courriers"
+                aria-label="Ouvrir la liste des courriers" title="Ouvrir la liste des courriers"
               >
                 <FontAwesomeIcon icon={faList} />
-                Liste
               </button>
             </div>
           </div>
         </div>
       </div>
 
+      <details className="courrier-detail-metadata rounded-xl border border-slate-200 bg-white px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium text-slate-600">Classement et caractéristiques</summary>
+        <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-700">
+          {[courrier.direction, courrier.service, (courrier.extraFields as Record<string, string>)?.['sousService'], courrier.sens === SensCourrier.SORTANT ? 'Courrier sortant' : 'Courrier entrant', getPrioriteLabel(courrier.priorite), courrier.type].filter(Boolean).map((value, index) => <span key={index} className="rounded-lg bg-slate-50 px-3 py-1.5">{value}</span>)}
+        </div>
+      </details>
+
+      <CourrierWorkflowPanel onAccessChange={(allowed,reason)=>setAnnotationAccess({allowed,reason})} courrierId={courrier.id} onChanged={statut=>{setCourrier(previous=>previous?{...previous,statut:statut as StatutCourrier}:previous);void loadWorkflows();}}/>
       {/* Carte Informations du courrier — uniquement champs configurés dans le formulaire */}
       {(() => {
         const rawSens = courrier.sens ?? (courrier.extraFields as Record<string, string>)?.['sens'];
@@ -2498,13 +2307,17 @@ const DetailCourrier: React.FC = () => {
           return fromExtra;
         };
 
-        const formatDisplayValue = (value: unknown, fieldType?: string): string => {
+        const formatDisplayValue = (value: unknown, fieldType?: string, fieldName?: string): string => {
           if (value === null || value === undefined || value === '') return '—';
+          if (fieldName === 'dateReception') {
+            const date = new Date(value as string | number);
+            return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('fr-FR', {timeZone: 'Africa/Kinshasa'});
+          }
           if (Array.isArray(value)) return value.length > 0 ? value.join(', ') : '—';
           if (fieldType === 'datetime') {
             try {
               return new Date(value as string | number).toLocaleString('fr-FR', {
-                day: '2-digit', month: '2-digit', year: 'numeric',
+                timeZone: 'Africa/Kinshasa', day: '2-digit', month: '2-digit', year: 'numeric',
                 hour: '2-digit', minute: '2-digit'
               });
             } catch {
@@ -2543,7 +2356,7 @@ const DetailCourrier: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {displayFields.map((field) => {
                     const value = getFieldValue(courrier, field.name);
-                    const formatted = formatDisplayValue(value, field.type);
+                    const formatted = formatDisplayValue(value, field.type, field.name);
                     const IconComponent = getIcon(field.icon);
                     return (
                       <div key={field.id} className="bg-slate-50/50 rounded-xl p-4 border border-slate-100">
@@ -2658,1002 +2471,7 @@ const DetailCourrier: React.FC = () => {
         </div>
       </div>
 
-      {/* Workflow (étapes) — suivi visuel + lien vers la page Workflow — visible dans Detail Courrier */}
-      <div className="bg-white rounded-2xl shadow-lg border border-slate-200/80">
-          <div className="px-6 py-5 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shadow-md shadow-emerald-500/20">
-                <FontAwesomeIcon icon={faDiagramProject} className="text-white" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-slate-800">Workflow</h2>
-                <p className="text-sm text-slate-500 mt-0.5">
-                  {workflows.length} étape{workflows.length !== 1 ? 's' : ''}
-                </p>
-              </div>
-            </div>
-            {/* Boutons workflow - seulement pour les rôles de direction */}
-            {canCreateWfStep ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                <Link
-                  to={`/workflow?courrier=${courrier.id}`}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 text-white font-semibold shadow-md shadow-emerald-500/25 hover:bg-emerald-600 transition-all text-sm"
-                >
-                  <FontAwesomeIcon icon={faDiagramProject} />
-                  Gérer le workflow
-                </Link>
-                <button
-                  type="button"
-                  onClick={addWfRow}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 text-sm font-semibold hover:bg-emerald-100 transition-all"
-                  title="Ajouter une étape"
-                >
-                  <FontAwesomeIcon icon={faPlus} />
-                  Ajouter une étape
-                </button>
-                {wfRows.length > 0 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={saveAllWfRows}
-                      disabled={wfSaving || wfRows.every(r => r.saved)}
-                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all"
-                    >
-                      {wfSaving ? <FontAwesomeIcon icon={faSpinner} className="animate-spin" /> : <FontAwesomeIcon icon={faSave} />}
-                      Tout enregistrer
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearWfRows}
-                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 transition-all"
-                    >
-                      <FontAwesomeIcon icon={faTimes} />
-                      Effacer
-                    </button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-400 font-medium text-sm cursor-not-allowed border border-slate-200">
-                <FontAwesomeIcon icon={faLock} className="text-slate-400" />
-                <span>Workflow verrouillé</span>
-              </div>
-            )}
-          </div>
-          <div className="p-6">
-            {workflows.length > 0 ? (
-              <>
-                {/* Suivi visuel : graphique des étapes (actions + conditions) dans le même flux */}
-                {(() => {
-                  const sortedActions = [...workflows]
-                    .filter(w => !w.estCondition)
-                    .sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
-                  const conditions = workflows.filter(w => w.estCondition);
-                  const usedConditionIds = new Set<string>();
-                  type DisplayNode = { type: 'action' | 'condition'; etape: WorkflowEtape };
-                  const displaySequence: DisplayNode[] = [];
-                  for (const action of sortedActions) {
-                    displaySequence.push({ type: 'action', etape: action });
-                    for (const cond of conditions) {
-                      if (cond.declencheur?.etapePrecedenteId === action.id) {
-                        displaySequence.push({ type: 'condition', etape: cond });
-                        usedConditionIds.add(cond.id);
-                      }
-                    }
-                  }
-                  for (const cond of conditions) {
-                    if (!usedConditionIds.has(cond.id)) {
-                      displaySequence.push({ type: 'condition', etape: cond });
-                    }
-                  }
-                  const currentStepIndex = sortedActions.findIndex(s => s.statut === 'EN_COURS' || s.statut === 'EN_ATTENTE');
-                  const niveauActuel = currentStepIndex >= 0 && currentStepIndex < sortedActions.length
-                    ? sortedActions[currentStepIndex].etape
-                    : 'Terminé';
-                  const restantes = sortedActions.filter(s => s.statut === 'EN_ATTENTE').length;
-                  const indexActuel = currentStepIndex >= 0 ? currentStepIndex + 1 : sortedActions.length;
-                  const etapeCourante = currentStepIndex >= 0 && currentStepIndex < sortedActions.length ? sortedActions[currentStepIndex] : null;
-                  const delaiCourant = etapeCourante ? getDelaiLabel(etapeCourante) : null;
-                  const tempsRestantCourant = etapeCourante ? getTempsRestantMs(etapeCourante) : null;
-                  return (
-                    <div className="mb-8 max-w-5xl mx-auto">
-                      <div className="flex flex-wrap items-center justify-center gap-4 mb-6 p-4 rounded-xl bg-slate-50 border border-slate-200">
-                        <div>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Niveau actuel</span>
-                          <p className="text-lg font-bold text-slate-800 mt-0.5">{niveauActuel}</p>
-                          <p className="text-sm text-slate-500 mt-0.5">Étape {indexActuel} sur {sortedActions.length}</p>
-                        </div>
-                        <div className="h-10 w-px bg-slate-200 hidden sm:block" />
-                        <div>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Étapes restantes</span>
-                          <p className="text-2xl font-bold text-slate-800 tabular-nums mt-0.5">{restantes}</p>
-                          <p className="text-sm text-slate-500 mt-0.5">{restantes === 1 ? 'étape à traiter' : 'étapes à traiter'}</p>
-                        </div>
-                        {(delaiCourant != null || (tempsRestantCourant != null && etapeCourante?.statut === 'EN_COURS')) && (
-                          <>
-                            <div className="h-10 w-px bg-slate-200 hidden sm:block" />
-                            <div>
-                              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Délai</span>
-                              <p className="text-lg font-bold mt-0.5 flex items-center gap-2">
-                                {delaiCourant === 'Dans le temps' && (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-sm font-semibold">
-                                    <FontAwesomeIcon icon={faCircleCheck} className="text-emerald-600" />
-                                    Dans le temps
-                                  </span>
-                                )}
-                                {delaiCourant === 'En retard' && (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-100 text-red-700 text-sm font-semibold">
-                                    <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-600" />
-                                    En retard
-                                  </span>
-                                )}
-                              </p>
-                              {tempsRestantCourant != null && etapeCourante?.statut === 'EN_COURS' && (
-                                <p className="text-sm text-slate-500 mt-0.5">
-                                  {tempsRestantCourant >= 0
-                                    ? `Temps restant : ${formatDureeHeures(tempsRestantCourant / (60 * 60 * 1000))}`
-                                    : `Retard : ${formatDureeHeures(-tempsRestantCourant / (60 * 60 * 1000))}`}
-                                </p>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      {/* Timeline horizontale : actions + conditions dans le même graphique */}
-                      <div className="flex justify-center overflow-x-auto py-6 px-4 min-h-[280px] bg-slate-50/50 rounded-xl border border-slate-100">
-                        <div className="flex items-stretch gap-0 min-w-max py-2">
-                          {displaySequence.map((node, idx) => {
-                            if (node.type === 'condition') {
-                              const cond = node.etape;
-                              const actionVrai = cond.actionSiVrai ? workflows.find(w => w.id === cond.actionSiVrai) : null;
-                              const actionFaux = cond.actionSiFaux ? workflows.find(w => w.id === cond.actionSiFaux) : null;
-                              return (
-                                <React.Fragment key={cond.id}>
-                                  <div className="flex-shrink-0 w-28 flex flex-col items-center self-center">
-                                    <div className="relative" style={{ width: '100px', height: '100px' }}>
-                                      <svg viewBox="0 0 200 140" className="w-full h-full drop-shadow-md" style={{ filter: 'drop-shadow(0 4px 8px rgba(147, 51, 234, 0.25))' }}>
-                                        <defs>
-                                          <linearGradient id={`diamondTimeline-${cond.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                                            <stop offset="0%" stopColor="#a855f7" />
-                                            <stop offset="50%" stopColor="#9333ea" />
-                                            <stop offset="100%" stopColor="#7c3aed" />
-                                          </linearGradient>
-                                        </defs>
-                                        <polygon points="100,10 190,70 100,130 10,70" fill={`url(#diamondTimeline-${cond.id})`} stroke="#7c3aed" strokeWidth="2" />
-                                        <polygon points="100,20 180,70 100,120 20,70" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-                                      </svg>
-                                      <div className="absolute inset-0 flex flex-col items-center justify-center p-2">
-                                        <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center mb-0.5">
-                                          <FontAwesomeIcon icon={faQuestion} className="text-white text-[10px]" />
-                                        </div>
-                                        <span className="text-white font-bold text-[10px] text-center leading-tight line-clamp-2">
-                                          {(cond.etape || '').length > 15 ? (cond.etape || '').substring(0, 15) + '…' : (cond.etape || 'Condition')}
-                                        </span>
-                                        <span className="text-white/70 text-[8px] mt-0.5">Condition</span>
-                                      </div>
-                                      <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 px-1 py-0.5 bg-emerald-500 text-white text-[8px] font-bold rounded shadow">OUI ↓</div>
-                                      <div className="absolute top-1/2 -right-0.5 -translate-y-1/2 px-1 py-0.5 bg-red-500 text-white text-[8px] font-bold rounded shadow">NON →</div>
-                                    </div>
-                                    {/* Étapes suivantes dans le même sens (côte à côte) */}
-                                    <div className="mt-1 flex flex-row items-center justify-center gap-2 w-full min-w-0">
-                                      {actionVrai && <p className="text-[9px] text-emerald-700 text-center line-clamp-1 flex-1 min-w-0 max-w-[80px]" title={actionVrai.etape}>OUI → {actionVrai.etape?.substring(0, 10)}{(actionVrai.etape?.length || 0) > 10 ? '…' : ''}</p>}
-                                      {actionFaux && <p className="text-[9px] text-red-700 text-center line-clamp-1 flex-1 min-w-0 max-w-[80px]" title={actionFaux.etape}>NON → {actionFaux.etape?.substring(0, 10)}{(actionFaux.etape?.length || 0) > 10 ? '…' : ''}</p>}
-                                    </div>
-                                  </div>
-                                  {idx < displaySequence.length - 1 && (
-                                    <div className="flex-shrink-0 w-6 flex items-center justify-center self-center">
-                                      <FontAwesomeIcon icon={faArrowRight} className="text-slate-300 text-sm" />
-                                    </div>
-                                  )}
-                                </React.Fragment>
-                              );
-                            }
-                            const etape = node.etape;
-                            const status = workflowStatusColors[etape.statut] || workflowStatusColors['EN_ATTENTE'];
-                            const assigneUser = userService.getUserById(etape.assigneA);
-                            const actionIndexInSorted = sortedActions.findIndex(s => s.id === etape.id);
-                            const isCurrent = etape.statut === 'EN_COURS' || (etape.statut === 'EN_ATTENTE' && sortedActions.findIndex(s => s.statut === 'EN_COURS') < 0 && actionIndexInSorted === sortedActions.findIndex(s => s.statut === 'EN_ATTENTE'));
-                            const delai = getDelaiLabel(etape);
-                            const tempsRestantMs = getTempsRestantMs(etape);
-                            const tempsRestantLabel = etape.statut === 'TERMINE' || etape.statut === 'REJETE'
-                              ? (etape.statut === 'TERMINE' ? 'Terminé' : 'Rejeté')
-                              : etape.statut === 'EN_COURS' && tempsRestantMs != null
-                                ? (tempsRestantMs >= 0 ? `Restant : ${formatDureeHeures(tempsRestantMs / (60 * 60 * 1000))}` : `Retard : ${formatDureeHeures(-tempsRestantMs / (60 * 60 * 1000))}`)
-                                : etape.statut === 'EN_ATTENTE' && etape.dureeEstimee != null
-                                  ? `Prévu : ${formatDureeHeures(etape.dureeEstimee)}`
-                                  : etape.statut === 'EN_ATTENTE'
-                                    ? 'Non démarré'
-                                    : null;
-                            const isLate = delai === 'En retard';
-                            const showCurrentAnimation = isCurrent && !isLate;
-                            const agentEntite = assigneUser ? getAgentEntiteLabel(assigneUser) : null;
-                            const cardBorderClass = isLate
-                              ? 'workflow-step-late'
-                              : showCurrentAnimation
-                                ? 'workflow-step-current'
-                                : 'border-2 border-slate-200';
-                            return (
-                              <React.Fragment key={etape.id}>
-                                <div
-                                  className={`flex-shrink-0 w-44 rounded-xl overflow-hidden shadow-md transition-all ${cardBorderClass}`}
-                                >
-                                  <div className={`bg-gradient-to-br ${status.bg} px-3 py-2 text-white`}>
-                                    <div className="flex items-center justify-between gap-1.5 mb-0.5">
-                                      <span className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold">
-                                        {etape.ordre ?? actionIndexInSorted + 1}
-                                      </span>
-                                      <FontAwesomeIcon icon={status.icon} className="text-white/90 text-xs" />
-                                    </div>
-                                    <h4 className="font-semibold text-xs leading-tight line-clamp-2">{etape.etape}</h4>
-                                    <p className="text-[10px] text-white/80 mt-0.5">{etape.statut.replace('_', ' ')}</p>
-                                  </div>
-                                  <div className="px-2.5 py-1.5 bg-white border-t border-slate-100 space-y-1.5">
-                                    <div>
-                                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 mb-0">Tâche</p>
-                                      <p className="text-[11px] text-slate-800 font-medium line-clamp-2 leading-tight">{etape.etape}</p>
-                                    </div>
-                                    {etape.commentaire && (
-                                      <div>
-                                        <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 mb-0">Fonction</p>
-                                        <p className="text-[11px] text-slate-700 line-clamp-2 leading-tight">{etape.commentaire}</p>
-                                      </div>
-                                    )}
-                                    {assigneUser ? (
-                                      <>
-                                        <p className="text-[11px] text-slate-600 flex items-center gap-1">
-                                          <FontAwesomeIcon icon={faUser} className="text-slate-400 text-[10px] flex-shrink-0" />
-                                          {assigneUser.nom}
-                                        </p>
-                                        <p className="text-[10px] text-slate-500">
-                                          <span className="font-semibold text-slate-600">Rôle :</span> {getRoleLabel(assigneUser.role)}
-                                        </p>
-                                        {agentEntite && (
-                                          <p className="text-[10px] text-slate-500 line-clamp-2">
-                                            {agentEntite}
-                                          </p>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <p className="text-[11px] text-slate-400">Non assigné</p>
-                                    )}
-                                    {tempsRestantLabel && (
-                                      <p className="text-[11px] text-slate-600 flex items-center gap-1">
-                                        <FontAwesomeIcon icon={faClock} className="text-slate-400 flex-shrink-0 text-[10px]" />
-                                        {tempsRestantLabel}
-                                      </p>
-                                    )}
-                                    {delai != null && (
-                                      <p className="flex items-center gap-1">
-                                        {delai === 'Dans le temps' && (
-                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-100 text-emerald-700">
-                                            <FontAwesomeIcon icon={faCircleCheck} className="text-emerald-600 text-[9px]" />
-                                            Dans le temps
-                                          </span>
-                                        )}
-                                        {delai === 'En retard' && (
-                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-red-100 text-red-700">
-                                            <FontAwesomeIcon icon={faExclamationTriangle} className="text-red-600 text-[9px]" />
-                                            En retard
-                                          </span>
-                                        )}
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                                {idx < displaySequence.length - 1 && (
-                                  <div className="flex-shrink-0 w-6 flex items-center justify-center self-center">
-                                    <FontAwesomeIcon icon={faArrowRight} className="text-slate-300 text-sm" />
-                                  </div>
-                                )}
-                              </React.Fragment>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-                <div className="space-y-3">
-                {[...workflows]
-                  .sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0))
-                  .map((etape) => {
-                    if (etape.estCondition) {
-                      const actionVrai = etape.actionSiVrai ? workflows.find(w => w.id === etape.actionSiVrai) : null;
-                      const actionFaux = etape.actionSiFaux ? workflows.find(w => w.id === etape.actionSiFaux) : null;
-                      return (
-                        <article key={etape.id} className="rounded-xl border border-purple-200 overflow-hidden bg-gradient-to-br from-purple-50 to-violet-50 border-l-4 border-l-purple-500">
-                          <div className="p-4 flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-3 flex-wrap">
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-white bg-purple-500">
-                                <FontAwesomeIcon icon={faCodeBranch} className="text-white/90" />
-                                Condition
-                              </span>
-                              <span className="font-medium text-slate-800">{etape.etape}</span>
-                            </div>
-                          </div>
-                          <div className="px-4 pb-4 pt-0 flex flex-wrap gap-4">
-                            {actionVrai && (
-                              <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700 font-medium">
-                                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-bold">Si OUI</span>
-                                <FontAwesomeIcon icon={faArrowRight} className="text-emerald-500 text-xs" />
-                                {actionVrai.etape}
-                              </span>
-                            )}
-                            {actionFaux && (
-                              <span className="inline-flex items-center gap-1.5 text-sm text-red-700 font-medium">
-                                <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 text-xs font-bold">Si NON</span>
-                                <FontAwesomeIcon icon={faArrowRight} className="text-red-500 text-xs" />
-                                {actionFaux.etape}
-                              </span>
-                            )}
-                          </div>
-                        </article>
-                      );
-                    }
-                    const assigneUser = userService.getUserById(etape.assigneA);
-                    const statutConfig = {
-                      EN_ATTENTE: { bg: 'bg-amber-50', border: 'border-l-amber-500', badge: 'bg-amber-500', label: 'En attente' },
-                      EN_COURS: { bg: 'bg-blue-50', border: 'border-l-blue-500', badge: 'bg-blue-500', label: 'En cours' },
-                      TERMINE: { bg: 'bg-emerald-50', border: 'border-l-emerald-500', badge: 'bg-emerald-500', label: 'Terminé' },
-                      REJETE: { bg: 'bg-red-50', border: 'border-l-red-500', badge: 'bg-red-500', label: 'Rejeté' }
-                    }[etape.statut] || { bg: 'bg-slate-50', border: 'border-l-slate-400', badge: 'bg-slate-500', label: etape.statut };
-                    return (
-                      <article
-                        key={etape.id}
-                        className={`rounded-xl border border-slate-200 overflow-hidden ${statutConfig.bg} border-l-4 ${statutConfig.border}`}
-                      >
-                        <div className="p-4 flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-3">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-white ${statutConfig.badge}`}>
-                              {statutConfig.label}
-                            </span>
-                            <span className="font-medium text-slate-800">{etape.etape}</span>
-                            {assigneUser && (
-                              <span className="text-sm text-slate-600 flex items-center gap-1">
-                                <FontAwesomeIcon icon={faUserCheck} className="text-slate-400" />
-                                {assigneUser.nom}
-                              </span>
-                            )}
-                          </div>
-                          {(etape.dateDebut || etape.dateFin) && (
-                            <span className="text-sm text-slate-500 flex items-center gap-1">
-                              <FontAwesomeIcon icon={faClock} className="text-slate-400" />
-                              {etape.dateDebut && new Date(etape.dateDebut).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                              {etape.dateFin && ` → ${new Date(etape.dateFin).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`}
-                            </span>
-                          )}
-                        </div>
-                        {etape.commentaire && (
-                          <div className="px-4 pb-4 pt-0">
-                            <p className="text-sm text-slate-600">{etape.commentaire}</p>
-                          </div>
-                        )}
-                                                {assigneUser?.id === user?.id && etape.statut !== 'TERMINE' && etape.statut !== 'REJETE' && (
-                          <div className="px-4 pb-4 pt-0 flex items-center gap-2">
-                            {etape.statut === 'EN_ATTENTE' && (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  try {
-                                    await courrierService.updateWorkflowEtapeAsync(etape.id, { statut: 'EN_COURS', dateDebut: new Date() });
-                                    // Mettre à jour le statut du courrier à EN_TRAITEMENT
-                                    if (courrier?.id) {
-                                      await courrierService.updateCourrier(courrier.id, { statut: StatutCourrier.EN_TRAITEMENT }).catch(() => {});
-                                    }
-                                    showAlert('Tâche démarrée', 'success');
-                                    loadWorkflows();
-                                  } catch (e) { showAlert('Erreur lors du démarrage', 'error'); }
-                                }}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"
-                              >
-                                <FontAwesomeIcon icon={faPlay} /> Démarrer
-                              </button>
-                            )}
-                            {etape.statut === 'EN_COURS' && (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  try {
-                                    await courrierService.updateWorkflowEtapeAsync(etape.id, { statut: 'TERMINE', dateFin: new Date() });
-                                    showAlert('Tâche terminée', 'success');
-                                    await loadCourrier();
-                                  } catch (e) { showAlert('Erreur lors de la terminaison', 'error'); }
-                                }}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700"
-                              >
-                                <FontAwesomeIcon icon={faCheck} /> Terminer
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                      </article>
-                    );
-                  })}
-              </div>
-
-              </>
-            ) : (
-              <>
-                <div className="text-center py-8">
-                  <FontAwesomeIcon icon={faDiagramProject} className="text-4xl text-slate-300 mb-3" />
-                  <p className="text-slate-500 font-medium">Aucune étape de workflow</p>
-                  {canCreateWfStep && (
-                    <button
-                      type="button"
-                      onClick={addWfRow}
-                      className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 transition-all"
-                    >
-                      <FontAwesomeIcon icon={faPlus} />
-                      Créer une étape
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* ── Lignes inline de création de workflow ─────────────────────── */}
-            {wfRows.length > 0 && (
-              <div className="mt-4 space-y-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm">
-                    <FontAwesomeIcon icon={faPlus} className="text-white text-[10px]" />
-                  </div>
-                  <span className="text-sm font-bold text-slate-700">Nouvelles étapes</span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700">
-                    {wfRows.filter(r => !r.saved).length} en attente
-                  </span>
-                </div>
-                {wfRows.map((row) => (
-                  <div key={row.id} className={`rounded-2xl border overflow-hidden shadow-sm transition-all ${
-                    row.saved ? 'border-emerald-200' : row.saving ? 'border-amber-300' : row.estCondition ? 'border-purple-200' : 'border-indigo-200'
-                  }`}>
-                    {/* Card header coloré */}
-                    <div className={`px-4 py-2.5 flex items-center justify-between ${
-                      row.saved ? 'bg-gradient-to-r from-emerald-500 to-emerald-600'
-                      : row.saving ? 'bg-gradient-to-r from-amber-400 to-amber-500'
-                      : row.estCondition ? 'bg-gradient-to-r from-purple-500 to-violet-600'
-                      : 'bg-gradient-to-r from-indigo-500 to-blue-600'
-                    }`}>
-                      {/* Toggle type */}
-                      {!row.saved && (
-                        <div className="flex items-center gap-1 p-0.5 bg-white/20 rounded-lg">
-                          <button type="button" onClick={() => updateWfRow(row.id, 'estCondition', false)}
-                            className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${!row.estCondition ? 'bg-white text-indigo-600 shadow' : 'text-white/80 hover:text-white'}`}>
-                            <FontAwesomeIcon icon={faFlag} className="mr-1" />Action
-                          </button>
-                          <button type="button" onClick={() => updateWfRow(row.id, 'estCondition', true)}
-                            className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${row.estCondition ? 'bg-white text-purple-600 shadow' : 'text-white/80 hover:text-white'}`}>
-                            <FontAwesomeIcon icon={faCodeBranch} className="mr-1" />Condition
-                          </button>
-                        </div>
-                      )}
-                      {row.saved && (
-                        <span className="inline-flex items-center gap-1.5 text-white font-semibold text-sm">
-                          <FontAwesomeIcon icon={faCheckCircle} />
-                          {row.estCondition ? row.condition : row.etape}
-                        </span>
-                      )}
-                      {!row.saved && (
-                        <button type="button" onClick={() => removeWfRow(row.id)}
-                          className="p-1.5 rounded-lg bg-white/10 hover:bg-white/25 text-white transition-all" title="Supprimer">
-                          <FontAwesomeIcon icon={faTimes} className="text-xs" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="p-4 bg-white space-y-3">
-                      {/* Nom / Condition */}
-                      {!row.saved && (
-                        <div>
-                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5 block">
-                            {row.estCondition ? 'Texte de la condition' : "Nom de l'étape"} <span className="text-red-400">*</span>
-                          </label>
-                          {row.estCondition ? (
-                            <input type="text" value={row.condition} onChange={e => updateWfRow(row.id, 'condition', e.target.value)}
-                              placeholder="Ex : Document validé par le directeur ?"
-                              className="w-full px-3 py-2 text-sm bg-purple-50 border border-purple-200 rounded-xl focus:ring-2 focus:ring-purple-300 focus:border-purple-400 transition-all" />
-                          ) : (
-                            <input type="text" value={row.etape} onChange={e => updateWfRow(row.id, 'etape', e.target.value)}
-                              placeholder="Ex : Vérification par le chef de service"
-                              className="w-full px-3 py-2 text-sm bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-all" />
-                          )}
-                        </div>
-                      )}
-
-                      {/* Branchements Si OUI / Si NON */}
-                      {row.estCondition && (
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-                            <label className="text-[10px] font-bold text-emerald-700 uppercase tracking-wide mb-1.5 block flex items-center gap-1">
-                              <FontAwesomeIcon icon={faCheck} className="text-emerald-600" /> Si OUI →
-                            </label>
-                            <select value={row.actionSiVrai} onChange={e => updateWfRow(row.id, 'actionSiVrai', e.target.value)} disabled={row.saved}
-                              className="w-full px-2 py-1.5 text-xs bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-300 disabled:opacity-60">
-                              <option value="">— Sélectionner —</option>
-                              {workflows.filter(w => !w.estCondition).map(w => <option key={w.id} value={w.id}>{w.etape}</option>)}
-                              {wfRows.filter(r => !r.estCondition && r.id !== row.id && r.etape).map(r => <option key={r.id} value={r.id}>{r.etape}</option>)}
-                            </select>
-                          </div>
-                          <div className="p-3 bg-red-50 rounded-xl border border-red-200">
-                            <label className="text-[10px] font-bold text-red-700 uppercase tracking-wide mb-1.5 block flex items-center gap-1">
-                              <FontAwesomeIcon icon={faTimes} className="text-red-500" /> Si NON →
-                            </label>
-                            <select value={row.actionSiFaux} onChange={e => updateWfRow(row.id, 'actionSiFaux', e.target.value)} disabled={row.saved}
-                              className="w-full px-2 py-1.5 text-xs bg-white border border-red-200 rounded-lg focus:ring-2 focus:ring-red-300 disabled:opacity-60">
-                              <option value="">— Sélectionner —</option>
-                              {workflows.filter(w => !w.estCondition).map(w => <option key={w.id} value={w.id}>{w.etape}</option>)}
-                              {wfRows.filter(r => !r.estCondition && r.id !== row.id && r.etape).map(r => <option key={r.id} value={r.id}>{r.etape}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Ligne 3 : Filtres organisation + Agent + Déclencheur + Durée (actions simples) */}
-                      {!row.estCondition && (
-                        <div className="space-y-2">
-                          {/* Filtres par entités */}
-                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <FontAwesomeIcon icon={faBuilding} className="text-slate-400 text-xs" />
-                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Filtrer par organisation</span>
-                            </div>
-                            {entiteTypeService.getActiveTypesForFilters().map((level, i) => {
-                              const parentId = i === 0 ? null : wfAssignFilterIds[i - 1] ?? null;
-                              const options = i === 0
-                                ? entiteOrganisationnelleService.getDirectionsForFilters()
-                                : parentId
-                                  ? entiteOrganisationnelleService.getEntitiesByParent(parentId).filter(e => e.type === level.code).sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0))
-                                  : [];
-                              const selectedId = wfAssignFilterIds[i] ?? null;
-                              const isLocked = wfShouldLockFilterLevel(i, level.code);
-                              return (
-                                <div key={level.code}>
-                                  <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-0.5">
-                                    {level.libelleSingulier}
-                                    {isLocked && <span className="ml-1 text-blue-500 font-normal italic">(verrouillé)</span>}
-                                  </label>
-                                  <SearchableSelect
-                                    options={options.map(e => ({ value: e.id, label: e.nom }))}
-                                    value={selectedId ?? ''}
-                                    onChange={(id) => wfHandleFilterChange(id, i, isLocked)}
-                                    disabled={isLocked}
-                                    emptyOption={isLocked ? `${level.libelleSingulier} verrouillé(e)` : `Tous les ${level.libellePluriel.toLowerCase()}`}
-                                    searchPlaceholder={`Rechercher un(e) ${level.libelleSingulier.toLowerCase()}...`}
-                                    className={isLocked ? 'opacity-75' : ''}
-                                  />
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {/* Agent assigné */}
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5 block flex items-center gap-1">
-                              <FontAwesomeIcon icon={faUser} className="text-slate-400" /> Agent assigné
-                            </label>
-                            <SearchableSelect
-                              options={wfFilteredAssignableUsers.map(u => ({
-                                value: u.id,
-                                label: `${u.nom} (${u.email || ''}) — ${u.role?.replace('_', ' ') || ''}`,
-                                avatarUrl: u.photoUrl,
-                                avatarLabel: u.nom?.charAt(0)?.toUpperCase() || '?',
-                              }))}
-                              value={row.assigneA}
-                              onChange={v => updateWfRow(row.id, 'assigneA', v)}
-                              emptyOption={wfFilteredAssignableUsers.length === 0 ? 'Aucun agent pour ces filtres' : 'Sélectionner un agent…'}
-                              searchPlaceholder="Rechercher par nom ou email..."
-                            />
-                          </div>
-                          {/* Déclencheur + Durée */}
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5 block flex items-center gap-1">
-                                <FontAwesomeIcon icon={faBolt} className="text-slate-400" /> Déclenchement
-                              </label>
-                              <select value={row.declencheurType} onChange={e => updateWfRow(row.id, 'declencheurType', e.target.value)} disabled={row.saved}
-                                className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 disabled:opacity-60">
-                                <option value="IMMEDIAT">⚡ Immédiat</option>
-                                <option value="APRES_ETAPE">🔗 Après une étape</option>
-                                <option value="DATE">📅 À une date</option>
-                              </select>
-                              {row.declencheurType === 'APRES_ETAPE' && (
-                                <select value={row.etapePrecedenteId} onChange={e => updateWfRow(row.id, 'etapePrecedenteId', e.target.value)} disabled={row.saved}
-                                  className="w-full mt-1.5 px-3 py-2 text-xs bg-blue-50 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-300 disabled:opacity-60">
-                                  <option value="">— Étape précédente —</option>
-                                  {workflows.map(w => <option key={w.id} value={w.id}>{w.etape}</option>)}
-                                </select>
-                              )}
-                              {row.declencheurType === 'DATE' && (
-                                <input type="datetime-local" value={row.dateDeclenchement} onChange={e => updateWfRow(row.id, 'dateDeclenchement', e.target.value)} disabled={row.saved}
-                                  className="w-full mt-1.5 px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 disabled:opacity-60" />
-                              )}
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5 block flex items-center gap-1">
-                                <FontAwesomeIcon icon={faHourglassHalf} className="text-slate-400" /> Durée estimée (h)
-                              </label>
-                              <input type="number" value={row.dureeEstimee} onChange={e => updateWfRow(row.id, 'dureeEstimee', e.target.value)}
-                                placeholder="Ex : 2.5" min={0} step={0.5} disabled={row.saved}
-                                className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-300 disabled:opacity-60" />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Étape précédente pour conditions */}
-                      {row.estCondition && (
-                        <div>
-                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5 block">Déclencher après (optionnel)</label>
-                          <select value={row.etapePrecedenteId} onChange={e => updateWfRow(row.id, 'etapePrecedenteId', e.target.value)} disabled={row.saved}
-                            className="w-full px-3 py-2 text-xs bg-violet-50 border border-violet-200 rounded-xl focus:ring-2 focus:ring-violet-300 disabled:opacity-60">
-                            <option value="">— Sélectionner une étape (optionnel) —</option>
-                            {workflows.map(w => <option key={w.id} value={w.id}>{w.estCondition ? `[Condition] ${w.etape}` : w.etape}</option>)}
-                          </select>
-                        </div>
-                      )}
-
-                      {/* Bouton Enregistrer */}
-                      {!row.saved && (
-                        <div className="flex items-center justify-end pt-1 border-t border-slate-100 mt-1">
-                          <button type="button" onClick={() => saveWfRow(row.id)} disabled={row.saving}
-                            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all shadow-sm disabled:opacity-60">
-                            {row.saving
-                              ? <><FontAwesomeIcon icon={faSpinner} className="animate-spin" /> Enregistrement…</>
-                              : <><FontAwesomeIcon icon={faSave} /> Enregistrer l'étape</>}
-                          </button>
-                        </div>
-                      )}
-                      {row.saved && (
-                        <div className="flex items-center justify-end pt-1 border-t border-emerald-100 mt-1">
-                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg">
-                            <FontAwesomeIcon icon={faCheckCircle} /> Étape enregistrée
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {/* Bouton ajouter une autre étape */}
-                <button
-                  type="button"
-                  onClick={addWfRow}
-                  className="w-full py-3 rounded-2xl border-2 border-dashed border-indigo-200 text-indigo-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/50 text-sm font-semibold transition-all flex items-center justify-center gap-2"
-                >
-                  <div className="w-5 h-5 rounded-full border-2 border-current flex items-center justify-center">
-                    <FontAwesomeIcon icon={faPlus} className="text-[10px]" />
-                  </div>
-                  Ajouter une autre étape
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-      {/* Assignations */}
-      <div className="bg-white rounded-2xl shadow-lg border border-slate-200/80 overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-violet-500 flex items-center justify-center shadow-md shadow-violet-500/20">
-              <FontAwesomeIcon icon={faUserCheck} className="text-white" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-800">Assignations</h2>
-              <p className="text-sm text-slate-500 mt-0.5">
-                {assignations.length} assignation{assignations.length !== 1 ? 's' : ''}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6">
-          {assignations.length > 0 ? (
-            <div className="space-y-4">
-              {assignations.map((assignation) => {
-                const assignedUser = userService.getUserById(assignation.assigneA);
-                const assignedByUser = userService.getUserById(assignation.assignePar);
-                const statutConfig = {
-                  EN_ATTENTE: { bg: 'bg-amber-50', border: 'border-l-amber-500', badge: 'bg-amber-500', label: 'En attente' },
-                  EN_COURS: { bg: 'bg-blue-50', border: 'border-l-blue-500', badge: 'bg-blue-500', label: 'En cours' },
-                  TERMINE: { bg: 'bg-emerald-50', border: 'border-l-emerald-500', badge: 'bg-emerald-500', label: 'Terminée' }
-                }[assignation.statut] || { bg: 'bg-slate-50', border: 'border-l-slate-400', badge: 'bg-slate-500', label: assignation.statut };
-                return (
-                  <article
-                    key={assignation.id}
-                    className={`rounded-xl border border-slate-200 overflow-hidden ${statutConfig.bg} border-l-4 ${statutConfig.border}`}
-                  >
-                    <div className="p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                        <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-semibold text-white ${statutConfig.badge}`}>
-                          {statutConfig.label}
-                        </span>
-                        {assignation.dateEcheance && (
-                          <span className="text-sm text-slate-500 flex items-center gap-1">
-                            <FontAwesomeIcon icon={faClock} className="text-slate-400" />
-                            Échéance : {new Date(assignation.dateEcheance).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="flex-shrink-0 w-10 h-10 rounded-full overflow-hidden bg-slate-200 flex items-center justify-center text-slate-600 text-sm font-bold">
-                          {assignedUser?.photoUrl ? (
-                            <img src={assignedUser.photoUrl} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            assignedUser?.nom?.charAt(0)?.toUpperCase() || '?'
-                          )}
-                        </span>
-                        <div>
-                          <p className="font-medium text-slate-800">
-                            <FontAwesomeIcon icon={faUserCheck} className="text-slate-400 mr-2" />
-                            Assigné à : {assignedUser ? `${assignedUser.nom} (${assignedUser.email})` : assignation.assigneA}
-                          </p>
-                          <p className="text-sm text-slate-500 mt-0.5 flex items-center gap-2">
-                            <span className="flex-shrink-0 w-6 h-6 rounded-full overflow-hidden bg-slate-300 flex items-center justify-center text-slate-600 text-[10px] font-bold">
-                              {assignedByUser?.photoUrl ? (
-                                <img src={assignedByUser.photoUrl} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                assignedByUser?.nom?.charAt(0)?.toUpperCase() || '?'
-                              )}
-                            </span>
-                            Assigné par : {assignedByUser ? assignedByUser.nom : assignation.assignePar}
-                          </p>
-                        </div>
-                      </div>
-                      {assignation.instructions && (
-                        <p className="text-sm text-slate-600 mt-2 pl-6 border-l-2 border-slate-200">{assignation.instructions}</p>
-                      )}
-                      {/* Boutons action pour l'utilisateur assigné — logique par rôle */}
-                      {assignation.assigneA === user?.id && assignation.statut !== 'TERMINE' && (() => {
-                        const { canTerminate, hint, buttonLabel } = getAssignationTerminationStatus(assignation);
-                        return (
-                          <div className="mt-3 pt-3 border-t border-slate-200">
-                            {/* Hint sur la condition à remplir */}
-                            {hint && (
-                              <p className={`text-xs mb-2 flex items-center gap-1.5 ${canTerminate ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                <FontAwesomeIcon icon={canTerminate ? faCircleCheck : faExclamationTriangle} className="text-xs flex-shrink-0" />
-                                {hint}
-                              </p>
-                            )}
-                            <div className="flex items-center gap-2">
-                              {assignation.statut === 'EN_COURS' && (
-                                <button
-                                  type="button"
-                                  disabled={!canTerminate}
-                                  title={!canTerminate ? hint : undefined}
-                                  onClick={async () => {
-                                    if (!canTerminate) return;
-                                    try {
-                                      await courrierService.updateAssignation(assignation.id, { statut: 'TERMINE' });
-                                      showAlert('Tâche marquée comme terminée', 'success');
-                                      await loadCourrier();
-                                    } catch (e) { showAlert('Erreur lors de la finalisation de la tâche', 'error'); }
-                                  }}
-                                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                    canTerminate
-                                      ? 'bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer'
-                                      : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                  }`}
-                                >
-                                  <FontAwesomeIcon icon={faCheck} /> {buttonLabel}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <FontAwesomeIcon icon={faUserCheck} className="text-4xl text-slate-300 mb-3" />
-              <p className="text-slate-500 font-medium">Aucune assignation</p>
-              <p className="text-sm text-slate-400 mt-1">Aucune assignation pour ce courrier</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Timeline des tâches */}
-      <div className="bg-white rounded-2xl shadow-lg border border-slate-200/80 overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center shadow-md shadow-indigo-500/20">
-              <FontAwesomeIcon icon={faClock} className="text-white" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-800">Timeline des tâches</h2>
-              <p className="text-sm text-slate-500 mt-0.5">
-                Historique chronologique des actions et rappels
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="p-6">
-          {loadingTasks ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
-              <span className="ml-3 text-slate-600">Chargement de la timeline...</span>
-            </div>
-          ) : tasksTimeline.length === 0 ? (
-            <div className="text-center py-12">
-              <FontAwesomeIcon icon={faClock} className="text-4xl text-slate-300 mb-3" />
-              <p className="text-slate-500 font-medium">Aucune tâche trouvée</p>
-              <p className="text-sm text-slate-400 mt-1">Ce courrier n'a pas encore de tâches associées</p>
-            </div>
-          ) : (
-            <div className="relative">
-              {/* Ligne verticale de la timeline */}
-              <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-slate-200"></div>
-              
-              <div className="space-y-6">
-                {tasksTimeline.map((task, index) => (
-                  <div key={task.id} className="relative flex items-start gap-4">
-                    {/* Point sur la timeline */}
-                    <div className="relative z-10 flex-shrink-0">
-                      <div className={`w-4 h-4 rounded-full border-2 ${
-                        task.type === 'enregistrement' ? 'bg-emerald-500 border-emerald-200' :
-                        task.type === 'assignation' ? 'bg-violet-500 border-violet-200' :
-                        task.type === 'rappel' ? 'bg-amber-500 border-amber-200' :
-                        task.type === 'workflow' ? 'bg-blue-500 border-blue-200' :
-                        task.type === 'upload' ? 'bg-slate-500 border-slate-200' :
-                        task.type === 'annotation' ? 'bg-orange-500 border-orange-200' :
-                        task.type === 'traitement' ? 'bg-green-600 border-green-200' :
-                        task.type === 'orientation' ? 'bg-teal-500 border-teal-200' :
-                        'bg-blue-500 border-blue-200'
-                      }`}>
-                        {task.isLoading && (
-                          <div className="absolute inset-0 rounded-full animate-ping bg-opacity-75 bg-current"></div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Contenu de la tâche */}
-                    <div className="flex-1 min-w-0">
-                      <div className={`rounded-xl border p-4 ${
-                        task.priority === 'high' ? 'border-red-200 bg-red-50' :
-                        task.priority === 'medium' ? 'border-amber-200 bg-amber-50' :
-                        'border-slate-200 bg-slate-50'
-                      }`}>
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                              {task.type === 'enregistrement' && <FontAwesomeIcon icon={faCircleCheck} className="text-emerald-600" />}
-                              {task.type === 'assignation' && <FontAwesomeIcon icon={faUserCheck} className="text-violet-600" />}
-                              {task.type === 'rappel' && <FontAwesomeIcon icon={faClock} className="text-amber-600" />}
-                              {task.type === 'workflow' && <FontAwesomeIcon icon={faCodeBranch} className="text-blue-600" />}
-                              {task.type === 'upload' && <FontAwesomeIcon icon={faUpload} className="text-slate-600" />}
-                              {task.type === 'annotation' && <FontAwesomeIcon icon={faEdit} className="text-orange-600" />}
-                              {task.type === 'traitement' && <FontAwesomeIcon icon={faCheck} className="text-green-600" />}
-                              {task.type === 'orientation' && <FontAwesomeIcon icon={faCompass} className="text-teal-600" />}
-                              {task.title}
-                              {task.isLoading && (
-                                <div className="flex items-center gap-1 text-xs text-amber-600">
-                                  <div className="w-2 h-2 bg-amber-600 rounded-full animate-pulse"></div>
-                                  <span>En attente</span>
-                                </div>
-                              )}
-                            </h3>
-                            {task.annotation && task.annotation.page != null && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const f = dossiersFichiers.find((x) => x.id === task.annotation.fichierId);
-                                  if (f) {
-                                    openDocumentAnnotator(f, task.annotation.page);
-                                  } else {
-                                    showAlert('Fichier du document introuvable', 'warning');
-                                  }
-                                }}
-                                className="inline-flex items-center gap-1.5 mt-2 text-[11px] px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 font-medium"
-                                title="Ouvrir le document et aller à cette page"
-                              >
-                                <FontAwesomeIcon icon={faFilePdf} className="w-3 h-3" />
-                                PDF — page {task.annotation.page}
-                                {task.annotation.decision && (
-                                  <span className="px-1 py-0 rounded bg-white border border-indigo-200 text-[10px]">
-                                    {task.annotation.decision === 'FAVORABLE' ? 'Favorable' : task.annotation.decision === 'A_REVOIR' ? 'À revoir' : 'Info'}
-                                  </span>
-                                )}
-                              </button>
-                            )}
-                            <p className="text-sm text-slate-600 mt-1">{task.description}</p>
-                          </div>
-                          <div className="flex-shrink-0 text-right">
-                            <span className="text-xs text-slate-500">
-                              {new Date(task.date).toLocaleDateString('fr-FR', { 
-                                day: 'numeric', 
-                                month: 'short', 
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </span>
-                          </div>
-                        </div>
-                        
-                        {/* Informations sur l'utilisateur */}
-                        {task.user && (
-                          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-200">
-                            <div className="w-6 h-6 rounded-full overflow-hidden bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-bold">
-                              {task.user.photoUrl ? (
-                                <img src={task.user.photoUrl} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                task.user.nom?.charAt(0)?.toUpperCase() || '?'
-                              )}
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-slate-700">
-                                {task.user.nom} ({task.user.email})
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                {getRoleLabel(task.user.role)}
-                              </p>
-                            </div>
-                            {task.assignedBy && (
-                              <div className="text-right">
-                                <p className="text-xs text-slate-500">
-                                  Assigné par: {task.assignedBy.nom}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        
-                        {/* Statut */}
-                        <div className="mt-3 pt-3 border-t border-slate-200">
-                          {/* Action requise */}
-                          {task.actionRequise && (
-                            <div className="mb-2 flex items-center gap-2 text-sm">
-                              <span className="font-medium text-slate-600">Action requise:</span>
-                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${
-                                task.status === 'TERMINE' 
-                                  ? 'bg-emerald-100 text-emerald-700' 
-                                  : 'bg-amber-100 text-amber-700'
-                              }`}>
-                                <FontAwesomeIcon 
-                                  icon={task.status === 'TERMINE' ? faCheck : faExclamationTriangle} 
-                                  className="text-xs"
-                                />
-                                {task.actionRequise}
-                              </span>
-                            </div>
-                          )}
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${
-                            task.status === 'TERMINE' ? 'bg-emerald-100 text-emerald-700' :
-                            task.status === 'EN_COURS' ? 'bg-blue-100 text-blue-700' :
-                            task.status === 'EN_ATTENTE' ? 'bg-amber-100 text-amber-700' :
-                            task.status === 'envoyé' ? 'bg-green-100 text-green-700' :
-                            'bg-slate-100 text-slate-700'
-                          }`}>
-                            <FontAwesomeIcon 
-                              icon={
-                                task.status === 'TERMINE' ? faCheck :
-                                task.status === 'EN_COURS' ? faClock :
-                                task.status === 'EN_ATTENTE' ? faHourglassHalf :
-                                task.status === 'envoyé' ? faEnvelope :
-                                faClock
-                              } 
-                              className="text-xs"
-                            />
-                            {task.status === 'TERMINE' ? (task.type === 'assignation' ? 'Terminée' : 'Terminé') :
-                             task.status === 'EN_COURS' ? 'En cours' :
-                             task.status === 'EN_ATTENTE' ? (task.statusLabel || 'En attente') :
-                             task.status === 'envoyé' ? 'Envoyé' :
-                             task.statusLabel || task.status}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      {annotations.some(annotation => !annotation.workflowEtapeId) && <details className="rounded-xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer text-sm font-medium text-slate-600">Annotations complémentaires</summary><div className="mt-3 space-y-3">{annotations.filter(annotation => !annotation.workflowEtapeId).map(annotation => <p key={annotation.id} className="whitespace-pre-wrap text-sm text-slate-700">{annotation.contenu}</p>)}</div></details>}
 
       {/* Modal de visualisation des fichiers — en avant-plan */}
       {showViewFileModal && viewFileData && createPortal(
@@ -4039,7 +2857,7 @@ const DetailCourrier: React.FC = () => {
                 let filtered = q
                   ? listCourriers.filter(
                       (c) =>
-                        c.numero.toLowerCase().includes(q) ||
+                        courrierSearchReferences(c).toLowerCase().includes(q) ||
                         (c.objet || '').toLowerCase().includes(q) ||
                         (c.expediteur || '').toLowerCase().includes(q) ||
                         (c.destinataire || '').toLowerCase().includes(q) ||
@@ -4096,7 +2914,7 @@ const DetailCourrier: React.FC = () => {
                             }`}
                           >
                             <div className="flex items-center justify-between gap-2 mb-1">
-                              <span className="font-semibold text-slate-800 truncate">{c.numero}</span>
+                              <span className="font-semibold text-slate-800 truncate">{courrierReferences(c)}</span>
                               <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-lg border ${getStatutBadge(c.statut)}`}>
                                 {c.statut.replace(/_/g, ' ')}
                               </span>

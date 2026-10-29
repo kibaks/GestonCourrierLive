@@ -1,3 +1,5 @@
+import CourrierWorkflowPanel from '../components/courriers/CourrierWorkflowPanel';
+import { courrierReferences, courrierSearchReferences } from '../utils/courrierReferences';
 import { MaterialDateTimeField } from '../components/MaterialDateTimeField';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -277,35 +279,7 @@ const Workflow: React.FC = () => {
         courrier = courrierService.getCourrierById(courrierId);
       }
       if (courrier) {
-        // Si le courrier est orienté/en attente/assigné et a déjà des annotations ou des étapes, le passer en traitement
-        const statutsOrientation = [StatutCourrier.EN_ATTENTE_DG, StatutCourrier.ORIENTE_DG, StatutCourrier.ORIENTE_DIRECTEUR, StatutCourrier.ASSIGNE];
-        if (statutsOrientation.includes(courrier.statut)) {
-          try {
-            const annotations = await courrierService.getAnnotationsByCourrier(courrier.id);
-            let etapes: any[] = [];
-            try {
-              const etapesData = await (courrierService as any).getWorkflowsByCourrierAsync?.(courrier.id);
-              etapes = Array.isArray(etapesData) ? etapesData : courrierService.getWorkflowsByCourrier(courrier.id);
-            } catch {
-              etapes = courrierService.getWorkflowsByCourrier(courrier.id);
-            }
-            if (annotations.length > 0 || etapes.length > 0) {
-              await courrierService.updateCourrier(courrier.id, { statut: StatutCourrier.EN_TRAITEMENT });
-              console.log('✅ Courrier avec annotations/étapes existantes mis en traitement');
-              const updatedCourrier = courrierService.getCourrierById(courrier.id);
-              const courrierEnTraitement = { ...(updatedCourrier || courrier), statut: StatutCourrier.EN_TRAITEMENT };
-              setSelectedCourrier(courrierEnTraitement);
-              setCourriers(prev => prev.map(c => c.id === courrierEnTraitement.id ? courrierEnTraitement : c));
-            } else {
-              setSelectedCourrier(courrier);
-            }
-          } catch (e) {
-            console.error('Erreur lors du changement de statut:', e);
-            setSelectedCourrier(courrier);
-          }
-        } else {
-          setSelectedCourrier(courrier);
-        }
+        setSelectedCourrier(courrier);
         loadWorkflows(courrier.id).catch(error => {
           console.error('Erreur lors du chargement des workflows:', error);
         });
@@ -461,7 +435,7 @@ const Workflow: React.FC = () => {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(c =>
-        c.numero.toLowerCase().includes(query) ||
+        courrierSearchReferences(c).toLowerCase().includes(query) ||
         c.objet.toLowerCase().includes(query) ||
         c.expediteur.toLowerCase().includes(query)
       );
@@ -1089,7 +1063,7 @@ const Workflow: React.FC = () => {
         });
         realTimeTaskSyncService.notifyWorkflowCreated(
           selectedCourrier.id,
-          selectedCourrier.numero,
+          courrierReferences(selectedCourrier),
           user.id,
           user.role,
           newEtape.estCondition ? newEtape.condition : newEtape.etape
@@ -1098,101 +1072,11 @@ const Workflow: React.FC = () => {
         console.warn('⚠️ [Workflow] Impossible de notifier: user ou selectedCourrier manquant', { user: !!user, selectedCourrier: !!selectedCourrier });
       }
 
-      // ── Mises à jour en arrière-plan (non bloquantes) ────────────────────────
-      // Si le courrier est orienté ou en attente DG, le passer en traitement (optimiste)
-      if (selectedCourrier && (selectedCourrier.statut === StatutCourrier.EN_ATTENTE_DG || selectedCourrier.statut === StatutCourrier.ORIENTE_DG || selectedCourrier.statut === StatutCourrier.ORIENTE_DIRECTEUR || selectedCourrier.statut === StatutCourrier.ASSIGNE)) {
-        const courrierEnTraitement = { ...selectedCourrier, statut: StatutCourrier.EN_TRAITEMENT };
-        setSelectedCourrier(courrierEnTraitement);
-        setCourriers(prev => prev.map(c => c.id === courrierEnTraitement.id ? courrierEnTraitement : c));
-        courrierService.updateCourrier(selectedCourrier.id, { statut: StatutCourrier.EN_TRAITEMENT })
-          .then(() => console.log('✅ Courrier mis en traitement'))
-          .catch(e => console.error('Erreur changement statut:', e));
-      }
-
-      // Si le DG a une assignation active, la terminer automatiquement (arrière-plan)
-      if (user.role === Role.DIRECTEUR_GENERAL && selectedCourrier) {
-        courrierService.getAssignationsByCourrier(selectedCourrier.id).then(assignations => {
-          const dgAssignation = assignations.find(
-            a => String(a.assigneA) === String(user.id) && a.statut !== 'TERMINE'
-          );
-          if (dgAssignation) {
-            courrierService.updateAssignation(dgAssignation.id, { statut: 'TERMINE' })
-              .then(() => console.log('✅ Assignation DG terminée'))
-              .catch(e => console.error('Erreur terminaison assignation:', e));
-          }
-        }).catch(() => {});
-      }
-
       // Afficher le message de succès
       setErrorMessage({ 
         type: 'success', 
         text: `✅ Étape ${newEtape.estCondition ? 'de condition' : ''} créée avec succès !\n\nL'étape a été ajoutée au workflow.` 
       });
-
-      // Vérifier la complétion de la tâche pour les rôles de management (DG, Directeur, Chef)
-      // Ces rôles terminent leur tâche quand ils créent une annotation ou une étape liée à l'orientation
-      const isManagement = taskCompletionService.isManagementRole(user.role);
-      if (isManagement && !newEtape.estCondition) {
-        // Créer une annotation MINUTE pour tracer l'action de création d'étape
-        try {
-          const assignedUser = userService.getUserById(newEtape.assigneA);
-          await courrierService.createAnnotation({
-            courrierId: selectedCourrier.id,
-            auteur: user.id,
-            contenu: `Étape "${newEtape.etape}" créée et assignée à ${assignedUser?.nom || 'un utilisateur'}`,
-            type: 'MINUTE',
-            workflowEtapeId: createdWorkflow.id
-          });
-          console.log('✅ Annotation MINUTE créée pour la création d\'étape');
-        } catch (annErr) {
-          console.warn('Création annotation MINUTE (création étape):', annErr);
-        }
-
-        // MARQUER AUTOMATIQUEMENT L'ASSIGNATION DE L'UTILISATEUR ASSIGNÉ COMME TERMINÉE
-        // Quand un Directeur/DG crée une étape, l'assignation du destinataire doit être marquée comme terminée
-        try {
-          if (newEtape.assigneA) {
-            const assignations = await courrierService.getAssignationsByCourrier(selectedCourrier.id);
-            const pendingAssignationsForAssignedUser = assignations.filter(
-              a => a.assigneA === newEtape.assigneA && a.statut === 'EN_ATTENTE'
-            );
-            
-            if (pendingAssignationsForAssignedUser.length > 0) {
-              console.log(`📝 [Workflow] ${pendingAssignationsForAssignedUser.length} assignation(s) en attente trouvée(s) pour l'utilisateur assigné ${newEtape.assigneA}`);
-              
-              for (const assignation of pendingAssignationsForAssignedUser) {
-                await (courrierService as any).updateAssignation(assignation.id, { statut: 'TERMINE' });
-                console.log(`✅ [Workflow] Assignation ${assignation.id} marquée comme TERMINÉE`);
-              }
-            }
-          }
-        } catch (assignErr) {
-          console.warn('Erreur lors de la mise à jour des assignations:', assignErr);
-        }
-
-        const completionCheck = taskCompletionService.checkTaskCompletion(user, {
-          createdSteps: [createdWorkflow],
-          isOrientationRelated: taskCompletionService.isOrientationRelated('CreateStep', newEtape.etape)
-        });
-        if (completionCheck.isComplete) {
-          // Notifier la complétion de la tâche en temps réel
-          realTimeTaskSyncService.notifyTaskCompleted(
-            selectedCourrier!.id,
-            selectedCourrier!.numero,
-            user.id,
-            user.role,
-            `Création d'étape: ${newEtape.etape}`,
-            completionCheck.reason
-          );
-          setTimeout(() => {
-            setErrorMessage({ 
-              type: 'success', 
-              text: `✅ Étape créée et tâche terminée !\n\n${completionCheck.reason}` 
-            });
-            setTimeout(() => setErrorMessage({ type: null, text: '' }), 4000);
-          }, 2500);
-        }
-      }
 
       // Réinitialiser le formulaire mais garder le message visible
       setNewEtape({ 
@@ -1357,18 +1241,9 @@ const Workflow: React.FC = () => {
 
       // Notifier immédiatement
       realTimeTaskSyncService.notifyWorkflowCreated(
-        selectedCourrier.id, selectedCourrier.numero, user.id, user.role,
+        selectedCourrier.id, courrierReferences(selectedCourrier), user.id, user.role,
         d.estCondition ? d.condition : d.etape
       );
-
-      // Si le courrier est orienté ou en attente DG, le passer en traitement (optimiste)
-      if (selectedCourrier.statut === StatutCourrier.EN_ATTENTE_DG || selectedCourrier.statut === StatutCourrier.ORIENTE_DG || selectedCourrier.statut === StatutCourrier.ORIENTE_DIRECTEUR || selectedCourrier.statut === StatutCourrier.ASSIGNE) {
-        const courrierEnTraitement = { ...selectedCourrier, statut: StatutCourrier.EN_TRAITEMENT };
-        setSelectedCourrier(courrierEnTraitement);
-        setCourriers(courriers.map(c => c.id === courrierEnTraitement.id ? courrierEnTraitement : c));
-        courrierService.updateCourrier(selectedCourrier.id, { statut: StatutCourrier.EN_TRAITEMENT })
-          .catch(e => console.error('Erreur lors du changement de statut:', e));
-      }
 
       // Confirmer immédiatement et fermer le formulaire
       setErrorMessage({ type: 'success', text: `✅ Étape ${d.estCondition ? 'conditionnelle' : ''} créée !` });
@@ -1386,74 +1261,12 @@ const Workflow: React.FC = () => {
   };
 
   const handleUpdateWorkflow = async (id: string, statut: 'EN_ATTENTE' | 'EN_COURS' | 'TERMINE' | 'REJETE') => {
+    if (statut === 'REJETE') { setErrorMessage({type:'error',text:'Utilisez le circuit ci-dessus pour rejeter une étape avec son motif.'}); return; }
     try {
-      const workflow = await (courrierService as any).updateWorkflowEtapeAsync(id, {
-        statut,
-        dateDebut: statut === 'EN_COURS' ? new Date() : undefined,
-        dateFin: statut === 'TERMINE' ? new Date() : undefined
-      });
-      if (workflow && selectedCourrier) {
-        const updatedWorkflows = workflows.map((w: WorkflowEtape) => w.id === id ? workflow : w);
-        setWorkflows(updatedWorkflows);
-        setSelectedEtape(workflow);
-        
-        // Mettre à jour le statut du courrier selon l'action
-        if (statut === 'EN_COURS') {
-          await courrierService.updateCourrier(selectedCourrier.id, { statut: StatutCourrier.EN_TRAITEMENT }).catch(() => {});
-          const updatedCourrier = courrierService.getCourrierById(selectedCourrier.id);
-          if (updatedCourrier) {
-            setSelectedCourrier(updatedCourrier);
-            setCourriers(courriers.map(c => c.id === updatedCourrier.id ? updatedCourrier : c));
-          }
-        }
-        
-        // Vérifier la complétion de la tâche selon le rôle de l'utilisateur
-        if (user) {
-          // Récupérer les étapes assignées à l'utilisateur courant
-          const assignedSteps = updatedWorkflows.filter((w: WorkflowEtape) => w.assigneA === user.id);
-          
-          const completionCheck = taskCompletionService.checkTaskCompletion(user, {
-            assignedSteps,
-            // Pour les rôles de management, considérer que c'est lié à l'orientation
-            isOrientationRelated: taskCompletionService.isManagementRole(user.role)
-          });
-          
-          if (completionCheck.isComplete) {
-            setErrorMessage({ 
-              type: 'success', 
-              text: `✅ ${completionCheck.reason}\n\nToutes vos étapes assignées sont terminées.` 
-            });
-            setTimeout(() => setErrorMessage({ type: null, text: '' }), 5000);
-          }
-        }
-        
-        // Lorsque toutes les étapes (actions) sont terminées, le courrier est rangé dans la liste des courriers à archiver
-        const etapesAction = updatedWorkflows.filter((w: WorkflowEtape) => !w.estCondition);
-        const toutesEtapesTerminees = etapesAction.length > 0 && etapesAction.every((w: WorkflowEtape) => w.statut === 'TERMINE');
-        if (toutesEtapesTerminees) {
-          await courrierService.updateCourrier(selectedCourrier.id, { 
-            statut: StatutCourrier.TRAITE 
-          });
-          const updatedCourrier = courrierService.getCourrierById(selectedCourrier.id);
-          if (updatedCourrier) {
-            setSelectedCourrier(updatedCourrier);
-            setCourriers(courriers.map(c => c.id === updatedCourrier.id ? updatedCourrier : c));
-          }
-          setErrorMessage({ 
-            type: 'success', 
-            text: 'Toutes les étapes sont terminées. Le courrier est rangé dans la liste des courriers à archiver (Archives > À archiver).' 
-          });
-          setTimeout(() => setErrorMessage({ type: null, text: '' }), 6000);
-        }
-      }
-    } catch (error: any) {
-      console.error('Erreur lors de la mise à jour du workflow:', error);
-      setErrorMessage({ 
-        type: 'error', 
-        text: `Erreur lors de la mise à jour:\n\n${error?.message || 'Erreur inconnue'}` 
-      });
-      setTimeout(() => setErrorMessage({ type: null, text: '' }), 5000);
-    }
+      const saved = await courrierService.updateWorkflowEtapeAsync(id, {statut});
+      if (saved && selectedCourrier) { await loadWorkflows(selectedCourrier.id); setSelectedEtape(saved); }
+      setErrorMessage({type:'success',text:'Étape mise à jour et circuit synchronisé par le serveur.'});
+    } catch(error) { setErrorMessage({type:'error',text:error instanceof Error?error.message:'Mise à jour impossible.'}); }
   };
 
   const handleAddResponse = async () => {
@@ -1485,63 +1298,6 @@ const Workflow: React.FC = () => {
         });
       } catch (annErr) {
         console.warn('Création annotation (réponse étape):', annErr);
-      }
-
-      // ── Mises à jour OPTIMISTES : l'UI réagit instantanément, les appels API
-      //    partent en arrière-plan (pas d'attente bloquante) ──────────────────────
-      // Si le courrier est orienté ou en attente DG, le passer en traitement
-      if (selectedCourrier.statut === StatutCourrier.EN_ATTENTE_DG || selectedCourrier.statut === StatutCourrier.ORIENTE_DG || selectedCourrier.statut === StatutCourrier.ORIENTE_DIRECTEUR || selectedCourrier.statut === StatutCourrier.ASSIGNE) {
-        // Mise à jour locale immédiate
-        const courrierEnTraitement = { ...selectedCourrier, statut: StatutCourrier.EN_TRAITEMENT };
-        setSelectedCourrier(courrierEnTraitement);
-        setCourriers(courriers.map(c => c.id === courrierEnTraitement.id ? courrierEnTraitement : c));
-        // Écriture serveur en arrière-plan
-        courrierService.updateCourrier(selectedCourrier.id, { statut: StatutCourrier.EN_TRAITEMENT })
-          .catch(e => console.error('Erreur lors du changement de statut:', e));
-      }
-
-      // Si le DG a une assignation active, la terminer automatiquement (arrière-plan)
-      if (user.role === Role.DIRECTEUR_GENERAL) {
-        (async () => {
-          try {
-            const assignations = await courrierService.getAssignationsByCourrier(selectedCourrier.id);
-            const dgAssignation = assignations.find(
-              a => String(a.assigneA) === String(user.id) && a.statut !== 'TERMINE'
-            );
-            if (dgAssignation) {
-              await courrierService.updateAssignation(dgAssignation.id, { statut: 'TERMINE' });
-              console.log('✅ Assignation DG terminée automatiquement');
-            }
-          } catch (e) {
-            console.error('Erreur lors de la terminaison de l\'assignation:', e);
-          }
-        })();
-      }
-
-      // Vérifier la complétion de la tâche selon le rôle de l'utilisateur
-      // Pour DG/Directeur/Chef: la tâche est terminée quand une annotation ou étape est créée (liée à l'orientation)
-      const isManagement = taskCompletionService.isManagementRole(user.role);
-      if (isManagement && createdAnnotation) {
-        const completionCheck = taskCompletionService.checkTaskCompletion(user, {
-          annotations: [createdAnnotation],
-          isOrientationRelated: taskCompletionService.isOrientationRelated('Annotation', selectedEtape.etape)
-        });
-        if (completionCheck.isComplete) {
-          // Notifier la complétion de la tâche en temps réel
-          realTimeTaskSyncService.notifyTaskCompleted(
-            selectedCourrier.id,
-            selectedCourrier.numero,
-            user.id,
-            user.role,
-            `Annotation créée: ${createdAnnotation.type}`,
-            completionCheck.reason
-          );
-          setErrorMessage({ 
-            type: 'success', 
-            text: `✅ ${completionCheck.reason}\n\nTâche automatiquement marquée comme terminée.` 
-          });
-          setTimeout(() => setErrorMessage({ type: null, text: '' }), 4000);
-        }
       }
 
       // Affichage immédiat de la nouvelle annotation dans "Annotations de l'étape"
@@ -2698,7 +2454,7 @@ const Workflow: React.FC = () => {
                     >
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <span className={`font-semibold text-sm truncate ${isSelected ? 'text-white' : 'text-slate-800'}`}>
-                          {courrier.numero}
+                          {courrierReferences(courrier)}
                         </span>
                         {workflowCount > 0 && (
                           <span className={`px-2 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${
@@ -2733,7 +2489,7 @@ const Workflow: React.FC = () => {
             <span className="font-medium text-sm">Liste des courriers</span>
             {selectedCourrier && (
               <span className="text-xs text-slate-500 font-normal truncate max-w-[200px]">
-                — {selectedCourrier.numero}
+                — {courrierReferences(selectedCourrier)}
               </span>
             )}
           </button>
@@ -2746,450 +2502,7 @@ const Workflow: React.FC = () => {
 
         {selectedCourrier ? (
           <>
-            {/* Header */}
-            <div className="bg-white border-b border-slate-200 shadow-sm">
-              <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-                <h1 className="font-bold text-slate-800 text-xl">{selectedCourrier.numero}</h1>
-                <p className="text-sm text-slate-500 mt-1">{selectedCourrier.objet?.replace(/<[^>]*>/g, '') || ''}</p>
-              </div>
-              
-              {/* Actions en dessous */}
-              <div className="px-6 py-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {/* Tabs */}
-                  <div className="flex items-center bg-neutral-100 rounded-lg p-1">
-                    <button
-                      onClick={() => setViewMode('visual')}
-                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                        viewMode === 'visual' ? 'bg-white shadow text-primary-600' : 'text-neutral-500'
-                      }`}
-                    >
-                      <FontAwesomeIcon icon={faProjectDiagram} className="mr-2" />
-                      Visuel
-                    </button>
-                    <button
-                      onClick={() => setViewMode('timeline')}
-                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                        viewMode === 'timeline' ? 'bg-white shadow text-primary-600' : 'text-neutral-500'
-                      }`}
-                    >
-                      <FontAwesomeIcon icon={faListUl} className="mr-2" />
-                      Timeline
-                    </button>
-                  </div>
-                  
-                  {/* Zoom (mode visuel) */}
-                  {viewMode === 'visual' && (
-                    <div className="flex items-center gap-1 px-2 border-l border-neutral-200 ml-2">
-                      <button onClick={zoomOut} className="p-2 rounded-lg text-neutral-500 hover:bg-neutral-100">
-                        <FontAwesomeIcon icon={faSearchMinus} />
-                      </button>
-                      <span className="text-sm text-neutral-600 w-12 text-center">{Math.round(transform.scale * 100)}%</span>
-                      <button onClick={zoomIn} className="p-2 rounded-lg text-neutral-500 hover:bg-neutral-100">
-                        <FontAwesomeIcon icon={faSearchPlus} />
-                      </button>
-                      <button onClick={resetZoom} className="p-2 rounded-lg text-neutral-500 hover:bg-neutral-100">
-                        <FontAwesomeIcon icon={faHome} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-                
-                {/* Actions à droite */}
-                <div className="flex items-center gap-1">
-                  {/* Bouton nouvelle étape - seulement pour les rôles de direction */}
-                  {canCreateStep ? (
-                    <button
-                      onClick={() => startInlineCreate(workflows.length > 0 ? (workflows[workflows.length - 1]?.ordre ?? workflows.length) : 0)}
-                      className="px-3 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-lg text-sm font-medium hover:from-primary-600 hover:to-primary-700 transition-all flex items-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faPlus} />
-                      Nouvelle étape
-                    </button>
-                  ) : (
-                    <div className="px-3 py-2 bg-slate-100 text-slate-400 rounded-lg text-sm font-medium cursor-not-allowed border border-slate-200 flex items-center gap-2">
-                      <FontAwesomeIcon icon={faLock} className="text-slate-400" />
-                      <span>Verrouillé</span>
-                    </div>
-                  )}
-                  <button onClick={exportToImage} disabled={exporting} className="p-2 rounded-lg text-neutral-500 hover:bg-neutral-100">
-                    <FontAwesomeIcon icon={faFileImage} />
-                  </button>
-                  <button onClick={exportToPDF} disabled={exporting} className="p-2 rounded-lg text-neutral-500 hover:bg-neutral-100">
-                    <FontAwesomeIcon icon={faFilePdf} />
-                  </button>
-                  <button
-                    onClick={toggleFullscreen}
-                    className="p-2 rounded-lg text-neutral-500 hover:bg-neutral-100"
-                    title={isFullscreen ? 'Quitter le plein écran' : 'Plein écran'}
-                  >
-                    <FontAwesomeIcon icon={isFullscreen ? faCompress : faExpand} />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Contenu principal */}
-            <div ref={containerRef} className={`flex-1 flex overflow-hidden relative ${selectedEtape ? 'pr-[400px]' : ''}`}>
-              {viewMode === 'visual' ? (
-                // Vue visuelle
-                <div
-                  ref={canvasRef}
-                  className="flex-1 relative overflow-hidden min-h-[500px]"
-                  style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
-                  onMouseDown={handleCanvasMouseDown}
-                  onMouseMove={handleCanvasMouseMove}
-                  onMouseUp={handleCanvasMouseUp}
-                  onMouseLeave={handleCanvasMouseUp}
-                  onWheel={handleWheel}
-                >
-                  {/* Grille */}
-                  <div 
-                    className="absolute inset-0 opacity-30"
-                    style={{
-                      backgroundImage: `radial-gradient(circle, #cbd5e1 1px, transparent 1px)`,
-                      backgroundSize: `${20 * transform.scale}px ${20 * transform.scale}px`,
-                      backgroundPosition: `${transform.x % (20 * transform.scale)}px ${transform.y % (20 * transform.scale)}px`
-                    }}
-                  />
-                  
-                  {/* Conteneur transformé */}
-                  <div
-                    className="absolute"
-                    style={{
-                      transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
-                      transformOrigin: '0 0',
-                      minWidth: '2000px',
-                      minHeight: '1000px'
-                    }}
-                  >
-                    {renderConnections()}
-                    {workflows.map(etape => renderNode(etape))}
-                  </div>
-                  
-                  {workflows.length === 0 && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="text-center text-neutral-400">
-                        <FontAwesomeIcon icon={faProjectDiagram} className="text-6xl mb-4 opacity-50" />
-                        <p className="text-lg">Aucune étape définie</p>
-                        {/* Bouton créer une étape - seulement pour les rôles de direction */}
-                        {canCreateStep ? (
-                          <button
-                            onClick={() => startInlineCreate(0)}
-                            className="mt-4 px-6 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-lg hover:from-primary-600 hover:to-primary-700 transition-all"
-                          >
-                            <FontAwesomeIcon icon={faPlus} className="mr-2" />
-                            Créer une étape
-                          </button>
-                        ) : (
-                          <div className="mt-4 px-6 py-2 bg-slate-100 text-slate-400 rounded-lg cursor-not-allowed border border-slate-200 inline-flex items-center gap-2">
-                            <FontAwesomeIcon icon={faLock} className="text-slate-400" />
-                            <span>Workflow verrouillé</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Formulaire inline overlay (mode visuel) */}
-                  {inlineCreateAfterOrdre !== null && viewMode === 'visual' && selectedCourrier && (
-                    <div className="absolute bottom-4 left-4 right-4 z-30 max-w-2xl mx-auto">
-                      {renderInlineCreateForm(false)}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                // Vue timeline
-                <div className="flex-1 overflow-y-auto bg-white/50">
-                  {renderTimeline()}
-              </div>
-              )}
-
-              {/* Panneau de détails */}
-              {selectedEtape && (
-                <div className="fixed top-[80px] right-0 bottom-0 w-[400px] max-w-[95vw] bg-white border-l border-slate-200 shadow-2xl z-40 flex flex-col overflow-hidden rounded-l-2xl">
-                  {/* En-tête — carte titre */}
-                  <div className="p-5 border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-primary-50/30">
-                    <div className="flex items-start justify-between gap-2 mb-3">
-                      <h3 className="text-lg font-bold text-slate-900">Détails de l'étape</h3>
-                      <button onClick={() => setSelectedEtape(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors" aria-label="Fermer">
-                        <FontAwesomeIcon icon={faTimes} className="text-sm" />
-                      </button>
-                    </div>
-                    <p className="text-base font-semibold text-slate-800 leading-snug">{selectedEtape.etape}</p>
-                  </div>
-
-                  {/* Zone de recherche dans le panneau */}
-                  <div className="shrink-0 px-4 pt-3 pb-2 border-b border-slate-100">
-                    <div className="relative">
-                      <FontAwesomeIcon icon={faSearch} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
-                      <input
-                        type="search"
-                        value={stepPanelSearch}
-                        onChange={(e) => setStepPanelSearch(e.target.value)}
-                        placeholder="Rechercher dans réponses et annotations..."
-                        className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 focus:ring-2 focus:ring-primary-300 focus:border-primary-400 focus:bg-white transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Contenu scrollable */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {/* Statut — carte */}
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 block">Statut</label>
-                      <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg ${
-                        statusColors[selectedEtape.statut as keyof typeof statusColors]?.badge
-                      }`}>
-                        <FontAwesomeIcon icon={statusColors[selectedEtape.statut as keyof typeof statusColors]?.icon || faClock} />
-                        <span className="font-medium">{selectedEtape.statut.replace('_', ' ')}</span>
-                      </div>
-                    </div>
-                    
-                    {/* Assigné à — carte avec photo de profil */}
-                    {selectedEtape.assigneA && (() => {
-                      const assignee = userService.getUserById(selectedEtape.assigneA);
-                      const initial = assignee?.nom?.charAt(0)?.toUpperCase() || '?';
-                      return (
-                        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 block">Assigné à</label>
-                          <div className="flex items-center gap-3 p-2 rounded-lg bg-slate-50/80 border border-slate-100">
-                            {assignee?.photoUrl ? (
-                              <img src={assignee.photoUrl} alt="" className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-md" />
-                            ) : (
-                              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white font-bold text-lg shadow-md border-2 border-white">
-                                {initial}
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <p className="font-semibold text-slate-800 truncate">{assignee?.nom || 'Inconnu'}</p>
-                              {assignee?.email && (
-                                <p className="text-xs text-slate-500 truncate">{assignee.email}</p>
-                              )}
-                              {assignee?.role && (
-                                <p className="text-[10px] text-slate-400 mt-0.5">{assignee.role.replace('_', ' ')}</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                    
-                    {/* Durée — carte */}
-                    {selectedEtape.dureeEstimee && (
-                      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Durée estimée</label>
-                        <p className="text-neutral-800 font-medium">{selectedEtape.dureeEstimee} heure(s)</p>
-                      </div>
-                    )}
-                    
-                    {/* Commentaire — carte */}
-                    {selectedEtape.commentaire && (
-                      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Commentaire</label>
-                        <p className="text-neutral-600 text-sm italic">"{selectedEtape.commentaire}"</p>
-                      </div>
-                    )}
-                    
-                    {/* Historique des réponses / avis */}
-                    {selectedEtape.responses && selectedEtape.responses.length > 0 && (() => {
-                      const q = stepPanelSearch.trim().toLowerCase();
-                      const sorted = selectedEtape.responses.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-                      const filtered = q ? sorted.filter(r =>
-                        (r.message || '').toLowerCase().includes(q) ||
-                        (r.auteurNom || r.auteurId || '').toLowerCase().includes(q) ||
-                        (r.decision || '').toLowerCase().includes(q)
-                      ) : sorted;
-                      if (filtered.length === 0) return null;
-                      return (
-                      <div>
-                        <label className="text-xs font-medium text-neutral-500 uppercase mb-1 block">Historique des réponses</label>
-                        <div className="space-y-3">
-                          {filtered.map((r) => {
-                              const responseAuthor = userService.getUserById(r.auteurId);
-                              const initial = responseAuthor?.nom?.charAt(0)?.toUpperCase() || r.auteurNom?.charAt(0)?.toUpperCase() || '?';
-                              return (
-                              <div key={r.id} className="p-3 rounded-lg border border-neutral-200 bg-neutral-50">
-                                <div className="flex items-center justify-between gap-2 text-sm text-neutral-700">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <span className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-bold">
-                                      {responseAuthor?.photoUrl ? (
-                                        <img src={responseAuthor.photoUrl} alt="" className="w-full h-full object-cover" />
-                                      ) : (
-                                        initial
-                                      )}
-                                    </span>
-                                    <span className="font-semibold truncate">{r.auteurNom || r.auteurId}</span>
-                                  </div>
-                                  <span className="text-neutral-500 text-xs flex-shrink-0">
-                                    {new Date(r.createdAt).toLocaleString('fr-FR')}
-                                  </span>
-                                </div>
-                                {r.decision && (
-                                  <div className="mt-1 text-xs font-semibold text-neutral-600">
-                                    Décision : {r.decision.replace('_', ' ')}
-                                  </div>
-                                )}
-                                <p className="text-sm text-neutral-700 mt-1 whitespace-pre-wrap">{r.message}</p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      );
-                    })()}
-
-                    {/* Annotations de l'étape (considérées comme contenu de l'étape dans le workflow) */}
-                    {stepAnnotations.length > 0 && (() => {
-                      const q = stepPanelSearch.trim().toLowerCase();
-                      const filtered = q ? stepAnnotations.filter(ann => {
-                        const author = userService.getUserById(ann.auteur);
-                        return (ann.contenu || '').toLowerCase().includes(q) || (author?.nom || '').toLowerCase().includes(q);
-                      }) : stepAnnotations;
-                      if (filtered.length === 0) return null;
-                      return (
-                      <div>
-                        <label className="text-xs font-medium text-neutral-500 uppercase mb-1 block">Annotations de l'étape</label>
-                        <div className="space-y-3">
-                          {filtered.map((ann) => {
-                            const author = userService.getUserById(ann.auteur);
-                            const typeConfig = {
-                              COMMENTAIRE: { badge: 'bg-blue-100 text-blue-700', icon: faComment, label: 'Commentaire' },
-                              NOTE: { badge: 'bg-amber-100 text-amber-700', icon: faStickyNote, label: 'Note' },
-                              MINUTE: { badge: 'bg-violet-100 text-violet-700', icon: faFileLines, label: 'Minute' },
-                            }[ann.type];
-                            const annInitial = author?.nom?.charAt(0)?.toUpperCase() ?? '?';
-                            return (
-                              <div key={ann.id} className="p-3 rounded-lg border border-neutral-200 bg-neutral-50">
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <div className="flex items-center gap-2">
-                                    <span className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-bold">
-                                      {author?.photoUrl ? (
-                                        <img src={author.photoUrl} alt="" className="w-full h-full object-cover" />
-                                      ) : (
-                                        annInitial
-                                      )}
-                                    </span>
-                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${typeConfig.badge}`}>
-                                      <FontAwesomeIcon icon={typeConfig.icon} className="text-[10px]" />
-                                      {typeConfig.label}
-                                    </span>
-                                  </div>
-                                  <span className="text-neutral-500 text-xs">
-                                    {new Date(ann.dateCreation).toLocaleString('fr-FR')}
-                                  </span>
-                                </div>
-                                <p className="text-xs font-semibold text-neutral-600 mt-1">{author?.nom ?? ann.auteur}</p>
-                                <div className="text-sm text-neutral-700 mt-1 whitespace-pre-wrap">{ann.contenu}</div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      );
-                    })()}
-
-                    {/* Ajouter un avis / réponse */}
-                    <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                      {/* Header */}
-                      <div className="px-4 py-3 bg-gradient-to-r from-slate-700 to-slate-800 flex items-center gap-2">
-                        <FontAwesomeIcon icon={faEdit} className="text-white text-sm" />
-                        <span className="text-white font-bold text-sm">Ajouter un avis / annotation</span>
-                      </div>
-                      <div className="p-4 bg-white space-y-3">
-                        {/* Décisions */}
-                        <div>
-                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2 block">Décision (optionnel)</label>
-                          <div className="flex flex-wrap gap-1.5">
-                            {([
-                              { value: 'AVIS_FAVORABLE', label: 'Favorable', icon: faCheckCircle, active: 'bg-emerald-500 text-white border-emerald-500', inactive: 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50' },
-                              { value: 'A_REVOIR',       label: 'À revoir',   icon: faExclamationTriangle, active: 'bg-amber-500 text-white border-amber-500',   inactive: 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50' },
-                              { value: 'INFO',           label: 'Info',       icon: faInfoCircle, active: 'bg-blue-500 text-white border-blue-500',     inactive: 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50' },
-                            ] as const).map(({ value, label, icon, active, inactive }) => (
-                              <button key={value} type="button"
-                                onClick={() => setResponseDecision(responseDecision === value ? undefined : value as WorkflowDecision)}
-                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${ responseDecision === value ? active : inactive }`}
-                              >
-                                <FontAwesomeIcon icon={icon} className="text-[10px]" />{label}
-                              </button>
-                            ))}
-                            {responseDecision && (
-                              <button type="button" onClick={() => setResponseDecision(undefined)}
-                                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-transparent transition-all">
-                                <FontAwesomeIcon icon={faTimes} className="text-[10px]" />Effacer
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {/* Message */}
-                        <div>
-                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5 block">Message <span className="text-red-400">*</span></label>
-                          <textarea
-                            className="w-full border border-slate-200 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 resize-none placeholder-slate-400 bg-slate-50/60 transition-all"
-                            rows={3}
-                            value={responseMessage}
-                            onChange={(e) => setResponseMessage(e.target.value)}
-                            disabled={responseSubmitting}
-                            placeholder="Saisissez votre avis ou annotation…"
-                            onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAddResponse(); }}
-                          />
-                          <p className="text-[10px] text-slate-400 mt-1">Ctrl+Entrée pour valider</p>
-                        </div>
-                        {/* Bouton */}
-                        <button
-                          type="button"
-                          onClick={handleAddResponse}
-                          disabled={!responseMessage.trim() || responseSubmitting}
-                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold bg-gradient-to-r from-slate-700 to-slate-800 text-white rounded-xl hover:from-slate-800 hover:to-slate-900 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
-                        >
-                          {responseSubmitting
-                            ? <><FontAwesomeIcon icon={faSpinner} className="animate-spin" /> Enregistrement…</>
-                            : <><FontAwesomeIcon icon={faCheck} /> Enregistrer l’avis</>}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                    
-                  {/* Options en bas avec taille réduite */}
-                  <div className="p-4 border-t border-neutral-100 bg-neutral-50 space-y-2">
-                    {selectedEtape.statut === 'EN_ATTENTE' && (
-                      <button
-                        onClick={() => handleUpdateWorkflow(selectedEtape.id, 'EN_COURS')}
-                        className="w-full px-3 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <FontAwesomeIcon icon={faPlay} className="text-xs" />
-                        Démarrer
-                      </button>
-                    )}
-                    {selectedEtape.statut === 'EN_COURS' && (
-                      <>
-                        <button
-                          onClick={() => handleUpdateWorkflow(selectedEtape.id, 'TERMINE')}
-                          className="w-full px-3 py-1.5 text-sm bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <FontAwesomeIcon icon={faCheckCircle} className="text-xs" />
-                          Terminer
-                        </button>
-                        <button
-                          onClick={() => handleUpdateWorkflow(selectedEtape.id, 'REJETE')}
-                          className="w-full px-3 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <FontAwesomeIcon icon={faTimesCircle} className="text-xs" />
-                          Rejeter
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={() => handleDeleteWorkflow(selectedEtape.id)}
-                      className="w-full px-3 py-1.5 text-sm bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 flex items-center justify-center gap-2 transition-colors"
-                    >
-                      <FontAwesomeIcon icon={faTrash} className="text-xs" />
-                      Supprimer
-                    </button>
-                  </div>
-                </div>
-              )}
-                </div>
+            <CourrierWorkflowPanel courrierId={selectedCourrier.id} onChanged={statut=>{setSelectedCourrier(previous=>previous?{...previous,statut:statut as StatutCourrier}:previous);void loadWorkflows(selectedCourrier.id);}}/>
           </>
         ) : (
           // Aucun courrier sélectionné — état vide professionnel
@@ -3200,7 +2513,7 @@ const Workflow: React.FC = () => {
               </div>
               <h2 className="text-2xl font-bold text-slate-800 mb-2">Sélectionnez un courrier</h2>
               <p className="text-slate-500 mb-6 leading-relaxed">
-                Choisissez un courrier dans la liste à gauche pour gérer son workflow et ses étapes.
+                Choisissez un courrier dans la liste à gauche pour consulter sa traçabilité et exécuter ses tâches.
               </p>
               {filteredCourriers.length > 0 ? (
                 <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100/80 border border-slate-200/80 text-slate-600 text-sm font-medium">

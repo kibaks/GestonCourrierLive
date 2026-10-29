@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 import { courrierService } from './courrierService';
 import { userService } from './userService';
 import { taskNotificationService } from './taskNotificationService';
@@ -6,7 +7,7 @@ import { taskCompletionService } from './taskCompletionService';
 import { Role } from '../types';
 
 export interface RealTimeSyncEvent {
-  type: 'action_completed' | 'task_assigned' | 'status_changed';
+  type: 'action_completed' | 'task_assigned' | 'status_changed' | 'annotation_created';
   courrierId: string;
   courrierNumero: string;
   userId: string;
@@ -51,13 +52,13 @@ class RealTimeTaskSyncService {
           console.log('📡 [RealTimeSync] Message annotation reçu via BroadcastChannel:', event.data);
           // Convertir le message en RealTimeSyncEvent et notifier les listeners locaux
           const syncEvent: RealTimeSyncEvent = {
-            type: 'action_completed',
+            type: 'annotation_created',
             courrierId: event.data.courrierId,
             courrierNumero: event.data.courrierNumero,
             userId: event.data.userId,
             userRole: event.data.userRole,
             action: `Annotation créée: ${event.data.annotationType}`,
-            newStatus: 'TERMINE',
+            newStatus: '',
             timestamp: new Date(event.data.timestamp),
             automatic: false
           };
@@ -133,7 +134,7 @@ class RealTimeTaskSyncService {
           
           // Si le statut a changé
           if (lastStatus && lastStatus !== currentStatus) {
-            console.log(`🔄 [RealTimeSync] Changement détecté: ${courrier.numero} ${lastStatus} → ${currentStatus}`);
+            console.log(`🔄 [RealTimeSync] Changement détecté: ${courrierReferences(courrier)} ${lastStatus} → ${currentStatus}`);
             
             // Analyser le changement et notifier les utilisateurs concernés
             await this.handleStatusChange(courrier, lastStatus, currentStatus);
@@ -177,17 +178,13 @@ class RealTimeTaskSyncService {
         
         // Vérifier si la tâche est terminée selon le rôle de l'utilisateur
         const assignedSteps = workflows.filter((w: any) => w.assigneA === assignedUser.id);
-        const completionCheck = taskCompletionService.checkTaskCompletion(assignedUser, {
-          assignedSteps,
-          orientationDone: newStatus.includes('ORIENTE'),
-          isOrientationRelated
-        });
+        const completionCheck = {isComplete:assignation.statut==='TERMINE',reason:'Affectation validée sur le serveur',completedAt:new Date()};
         
         if (detectedAction || completionCheck.isComplete) {
           const event: RealTimeSyncEvent = {
             type: completionCheck.isComplete ? 'action_completed' : 'status_changed',
             courrierId: courrier.id,
-            courrierNumero: courrier.numero,
+            courrierNumero: courrierReferences(courrier),
             userId: assignation.assigneA,
             userRole: assignedUser.role,
             action: detectedAction || completionCheck.reason,
@@ -378,13 +375,13 @@ class RealTimeTaskSyncService {
     console.log(`📢 [RealTimeSync] Notification création annotation: ${annotationType} sur ${courrierNumero}`);
     
     const event: RealTimeSyncEvent = {
-      type: 'action_completed',
+      type: 'annotation_created',
       courrierId,
       courrierNumero,
       userId,
       userRole,
       action: `Annotation créée: ${annotationType}`,
-      newStatus: 'TERMINE',
+      newStatus: '',
       timestamp: new Date(),
       automatic: false
     };

@@ -1,3 +1,4 @@
+import { courrierReferences, courrierSearchReferences } from '../utils/courrierReferences';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -630,7 +631,7 @@ const Dashboard: React.FC = () => {
 
   const filteredCourriers = recentCourriers.filter(courrier => {
     const matchesSearch = searchTerm === '' || 
-      courrier.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      courrierSearchReferences(courrier).toLowerCase().includes(searchTerm.toLowerCase()) ||
       courrier.objet.toLowerCase().includes(searchTerm.toLowerCase()) ||
       courrier.expediteur.toLowerCase().includes(searchTerm.toLowerCase()) ||
       courrier.destinataire.toLowerCase().includes(searchTerm.toLowerCase());
@@ -1976,8 +1977,8 @@ minute: '2-digit'
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 min-w-0">
-                            <div className="font-semibold text-slate-900 text-sm truncate" title={courrier.numero}>
-                              {courrier.numero}
+                            <div className="font-semibold text-slate-900 text-sm truncate" title={courrierReferences(courrier)}>
+                              {courrierReferences(courrier)}
                             </div>
                             {isNouveauCourrier(courrier.createdAt) && (
                               <span

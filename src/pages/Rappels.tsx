@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Role, Assignation, Courrier } from '../types';
@@ -317,13 +318,13 @@ const Rappels: React.FC = () => {
             : await checkActionCompleted(rappel.courrierId, assignedUser?.role || user?.role || '', rappel.assigneA);
           final.push({
             ...rappel,
-            courrier: { id: courrier.id, numero: courrier.numero, objet: courrier.objet, type: courrier.type, dateReception: courrier.dateReception },
+            courrier: { id: courrier.id, numero: courrierReferences(courrier), objet: courrier.objet, type: courrier.type, dateReception: courrier.dateReception },
             actionCompleted: actionCheck.completed, requiredAction: actionCheck.action, currentStatus: actionCheck.currentStatus
           });
         } catch {
           final.push({
             ...rappel,
-            courrier: { id: courrier.id, numero: courrier.numero, objet: courrier.objet, type: courrier.type, dateReception: courrier.dateReception },
+            courrier: { id: courrier.id, numero: courrierReferences(courrier), objet: courrier.objet, type: courrier.type, dateReception: courrier.dateReception },
             actionCompleted: false, requiredAction: 'Vérifier annotation/étape', currentStatus: 'ERREUR_VERIFICATION'
           });
         }
@@ -680,7 +681,7 @@ const Rappels: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         {rappel.courrier ? (
-                          <span className={`font-bold text-sm ${isCompleted ? 'text-slate-500' : 'text-slate-900'}`}>{rappel.courrier.numero}</span>
+                          <span className={`font-bold text-sm ${isCompleted ? 'text-slate-500' : 'text-slate-900'}`}>{courrierReferences(rappel.courrier)}</span>
                         ) : (
                           <span className="font-bold text-red-500 text-sm">Courrier introuvable</span>
                         )}

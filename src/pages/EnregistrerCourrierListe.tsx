@@ -1,3 +1,8 @@
+import { internalEntityFields,cascadeForEntity } from '../utils/internalEntities';
+import {batchRequestId,batchSourceRow} from '../utils/batchRegistration';
+import {courrierReferences} from '../utils/courrierReferences';
+import { numberingRequest } from '../services/numberingService';
+import CourrierNumberingFields from '../components/CourrierNumberingFields';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
@@ -62,6 +67,9 @@ const makeRow = (defaults: RowDefaults = {}): RowData => ({
 });
 const validate = (r: RowData, cols: ExtraFieldConfig[]): RowError => {
   const e: RowError = {};
+  for(const key of ['dateReception','objet','expediteur','destinataire'] as const)if(!r[key].trim())e[key]='Requis';
+  if(r.dateReception&&Number.isNaN(new Date(r.dateReception).getTime()))e.dateReception='Date invalide';
+  for(const key of ['expediteur','destinataire'] as const)if(r[key].length>255)e[key]='255 caractères maximum';
   cols.forEach(col => {
     if (!col.required) return;
     const val = DIRECT_ROW_KEYS.has(col.name)
@@ -77,7 +85,7 @@ const sel = 'w-full px-2.5 py-1.5 rounded-lg border border-surface-200 bg-white 
 const EnregistrerCourrierListe: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { user, authReady, locked } = useAuth();
 
   // Lire les préférences depuis l'URL et le profil utilisateur
   const urlSens = searchParams.get('sens') as SensCourrier | null;
@@ -113,12 +121,23 @@ const EnregistrerCourrierListe: React.FC = () => {
     return defaults;
   };
 
+  const [numberingEntityId, setNumberingEntityId] = useState('');
   const [rows, setRows] = useState<RowData[]>(() => { const d = getDefaults(); return [makeRow(d), makeRow(d)]; });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggleExpand = (id: string) => setExpanded(p => ({ ...p, [id]: !p[id] }));
   const [status, setStatus] = useState<Record<string, RowStatus>>({});
   const [errors, setErrors] = useState<Record<string, RowError>>({});
   const [saving, setSaving] = useState(false);
+  const savingLock=useRef(false);
+  const requestKeys=useRef<Record<string,string>>({});
+  const [savePhase,setSavePhase]=useState<'idle'|'creating'|'attachments'>('idle');
+  const [receipts,setReceipts]=useState<Record<string,{id:string;reference:string;subject:string}>>({});
+  const [fileFailures,setFileFailures]=useState<Record<string,string[]>>({});
+  const [batchNotice,setBatchNotice]=useState('');
+  const [showNumbering,setShowNumbering]=useState(true);
+  const [showEmptyFolders,setShowEmptyFolders]=useState(false);
+  const finishSaving=()=>{savingLock.current=false;setSaving(false);setSavePhase('idle');};
+  const rememberReceipt=(row:RowData,c:Courrier)=>setReceipts(previous=>({...previous,[row.id]:{id:c.id,reference:courrierReferences(c),subject:c.objet}}));
   const [savedCount, setSavedCount] = useState(0);
   const [directions, setDirections] = useState<{ id: string; nom: string }[]>([]);
   const [allServices, setAllServices] = useState<any[]>([]);
@@ -183,6 +202,32 @@ const EnregistrerCourrierListe: React.FC = () => {
   const [activeSens, setActiveSens] = useState<SensCourrier>(initSens);
   const [activeType, setActiveType] = useState<TypeCourrier>(initType);
 
+  const [letterNumbers, setLetterNumbers] = useState<string[]>([]);
+  const [letterNumberError, setLetterNumberError] = useState('');
+  const [letterNumberLoading, setLetterNumberLoading] = useState(false);
+  const [letterNumberRefresh, setLetterNumberRefresh] = useState(0);
+  const draftRows = rows.filter(row => status[row.id] !== 'saved');
+  const draftIdentity = draftRows.map(row => row.id).join(',');
+  useEffect(() => {
+    setLetterNumbers([]);
+    setLetterNumberError('');
+    if (!authReady || locked || !user?.id || saving || !draftRows.length || !laravelApiService.isConfigured()) {
+      setLetterNumberLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLetterNumberLoading(true);
+    numberingRequest<{ enabled: boolean; numbers?: string[] }>('preview', {
+      entityId: numberingEntityId || null, type: activeType, sens: activeSens, count: draftRows.length,
+    }, 'POST', controller.signal).then(result => {
+      setLetterNumbers(result.numbers || []);
+      if (!result.enabled) setLetterNumberError('Activez la numérotation dans les paramètres administrateur.');
+    }).catch(error => {
+      if (error.name !== 'AbortError') setLetterNumberError(error.message || 'Numéros indisponibles.');
+    }).finally(() => { if (!controller.signal.aborted) setLetterNumberLoading(false); });
+    return () => controller.abort();
+  }, [numberingEntityId, activeType, activeSens, draftIdentity, saving, letterNumberRefresh, authReady, locked, user?.id]);
+
   // Config formulaire + colonnes dynamiques extraites
   const [formConfig, setFormConfig] = useState<ExtraFieldsBySensAndType | null>(null);
   const [extraColumns, setExtraColumns] = useState<ExtraFieldConfig[]>([]);
@@ -190,34 +235,66 @@ const EnregistrerCourrierListe: React.FC = () => {
   const allowed = user && [Role.SECRETAIRE, Role.SUPER_ADMIN, Role.DIRECTEUR_GENERAL].includes(user.role);
 
   // Champs structurels gérés par des colonnes fixes dédiées — ne pas les dupliquer
-  const FIXED_FIELDS = new Set(['sens', 'type', 'direction', 'service', 'sousService', 'priorite', 'folderId']);
+  const FIXED_FIELDS = new Set(['sens', 'type', 'direction', 'service', 'priorite', 'folderId', 'numero', 'numeroOrganisationnel']);
   // Tous les types utilisables inline (exclure uniquement 'file')
   const INLINE_TYPES = new Set(['text', 'email', 'number', 'phone', 'url', 'date', 'datetime', 'select', 'radio', 'checkbox', 'slider', 'urgency', 'textarea']);
   // Champs essentiels à afficher dans le tableau (le reste va dans l'expandable)
-  const ESSENTIAL_TABLE_FIELDS = new Set(['expediteur', 'destinataire', 'objet', 'referenceExterne']);
+  const ESSENTIAL_TABLE_FIELDS = new Set(['expediteur', 'destinataire', 'objet', 'referenceExterne', 'dateReception']);
+
+  const [referenceLoading, setReferenceLoading] = useState(true);
+  const [referenceError, setReferenceError] = useState('');
+  const [referenceAttempt, setReferenceAttempt] = useState(0);
 
   useEffect(() => {
-    setDirections(directionService.getAllDirections());
-    setAllServices(directionService.getAllServices() as any[]);
-    entiteOrganisationnelleService.refreshFromApi?.()
-      .then(() => setEntities(entiteOrganisationnelleService.getAllEntities().filter(e => e.actif !== false)))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (user?.id) {
-      // Charger depuis localStorage instantanément, sync API en arrière-plan
-      categorieCourrierService.getCategoriesAndMapForUser(user.id).then(({ folders: f }) => {
-        const deletedIds = categorieCourrierService.loadDeletedIds(user.id);
-        setFolders(f.filter(folder => !deletedIds.has(folder.id)));
-      }).catch(() => {});
-    }
-  }, [user?.id]);
-
-  // Charger la config formulaire (même source que l'étape 2 de EnregistrerCourrier)
-  useEffect(() => {
-    formulaireCourrierService.getConfigAsync().then(cfg => setFormConfig(cfg)).catch(() => {});
-  }, []);
+    if(!authReady||locked||!user?.id)return;
+    let cancelled = false;
+    setReferenceLoading(true);
+    setReferenceError('');
+    const load = async () => {
+      const results = await Promise.allSettled([
+        (laravelApiService.isConfigured()
+          ? Promise.all([laravelApiService.getEntitesOrganisationnelles().then(list => entiteOrganisationnelleService.syncFromApi(list)),entiteTypeService.syncFromApi().then(ok=>{if(!ok)throw new Error('Types d’entités indisponibles');})])
+          : Promise.resolve()).then(() => {
+          if (cancelled) return;
+          setEntities(entiteOrganisationnelleService.getAllEntities().filter(e => e.actif !== false));
+          const loaded=entiteOrganisationnelleService.getAllEntities().filter(e=>e.actif!==false),levels=entiteTypeService.getActiveTypesForFilters();
+          setRows(previous=>previous.map(row=>{
+            if(row.type!==TypeCourrier.INTERNE)return row;
+            const infer=(name:string,existing:Record<string,string>)=>{
+              if(Object.keys(existing).length)return existing;
+              const matches=loaded.filter(entity=>entity.nom===name);
+              return matches.length===1?cascadeForEntity(matches[0].id,levels,loaded):existing;
+            };
+            return {...row,entiteEmetteur:infer(row.expediteur,row.entiteEmetteur),entiteDestinataire:infer(row.destinataire,row.entiteDestinataire)};
+          }));
+          setDirections(directionService.getAllDirections());
+          setAllServices(directionService.getAllServices());
+        }),
+        (laravelApiService.isConfigured()
+          ? formulaireCourrierService.loadFromLaravelOnly()
+          : formulaireCourrierService.getConfigAsync()).then(config => {
+          if (!cancelled) setFormConfig(config);
+        }),
+        user?.id ? (laravelApiService.isConfigured()
+          ? laravelApiService.getFolders(user.id).then(list => list.map(folder => ({
+              ...folder, id: String(folder.id), name: String(folder.name ?? ''),
+              parentId: folder.parentId == null ? null : String(folder.parentId),
+            })) as CategorieCourrier[])
+          : categorieCourrierService.getCategoriesAndMapForUser(user.id).then(data => data.folders)).then(loaded => {
+          if (cancelled) return;
+          const deletedIds = categorieCourrierService.loadDeletedIds(user.id);
+          setFolders(loaded.filter(folder => !deletedIds.has(folder.id)));
+        }) : Promise.resolve(),
+      ]);
+      if (cancelled) return;
+      const names = ['organigramme', 'champs du formulaire', 'dossiers de classement'];
+      const failed = results.flatMap((result, index) => result.status === 'rejected' ? [names[index]] : []);
+      setReferenceError(failed.length ? `Chargement incomplet : ${failed.join(', ')}. Vos saisies sont conservées.` : '');
+      setReferenceLoading(false);
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [user?.id, referenceAttempt, authReady, locked]);
 
   // Charger les scanners au démarrage
   useEffect(() => {
@@ -240,7 +317,6 @@ const EnregistrerCourrierListe: React.FC = () => {
             !FIXED_FIELDS.has(field.name) &&
             !seen.has(field.name) &&
             INLINE_TYPES.has(field.type ?? 'text') &&
-            field.showInTable !== false &&
             !isPriority
           ) {
             seen.add(field.name);
@@ -256,6 +332,7 @@ const EnregistrerCourrierListe: React.FC = () => {
   useEffect(() => {
     setRows(prev => prev.map(r => {
       // Ne pas modifier les lignes déjà sauvegardées (vérification via closure sur status)
+      if (status[r.id]==='saved')return r;
       if (r.sens === activeSens && r.type === activeType) return r;
       // Mettre à jour le sens et type pour correspondre aux options globales
       return { ...r, sens: activeSens, type: activeType };
@@ -263,10 +340,12 @@ const EnregistrerCourrierListe: React.FC = () => {
   }, [activeSens, activeType]);
 
   const upd = useCallback((id: string, f: keyof RowData, v: string) => {
+    if(savingLock.current)return;
+    if(f==='folderId'&&v)setExpandedFolderIds(previous=>{const next=new Set(previous);const visited=new Set<string>();let current=folders.find(folder=>folder.id===v);while(current&&!visited.has(current.id)){visited.add(current.id);next.add(current.id);current=folders.find(folder=>folder.id===current?.parentId);}return next;});
     setRows(p => p.map(r => r.id !== id ? r : { ...r, [f]: v, ...(f === 'direction' ? { service: '' } : {}) }));
     setErrors(p => { const e = { ...p[id] }; delete (e as any)[f]; return { ...p, [id]: e }; });
     setStatus(p => ({ ...p, [id]: 'idle' }));
-  }, []);
+  }, [folders]);
 
   const updExtra = useCallback((id: string, fieldName: string, value: string) => {
     setRows(p => p.map(r => r.id !== id ? r : { ...r, extraFields: { ...r.extraFields, [fieldName]: value } }));
@@ -497,18 +576,21 @@ const EnregistrerCourrierListe: React.FC = () => {
   };
 
   const addRow = () => {
+    if(savingLock.current)return;
     const d = getDefaults();
     d.sens = activeSens;
     d.type = activeType;
     setRows(p => [...p, makeRow(d)]);
   };
   const rmRow = (id: string) => {
+    if(savingLock.current)return;
     setRows(p => p.filter(r => r.id !== id));
     setErrors(p => { const n = { ...p }; delete n[id]; return n; });
     setStatus(p => { const n = { ...p }; delete n[id]; return n; });
   };
   const dupRow = (row: RowData) => {
-    const nr: RowData = { ...row, id: uid(), objet: '', referenceExterne: '' };
+    if(savingLock.current)return;
+    const nr: RowData = { ...row, id: uid(), objet: '', referenceExterne: '', files:[],extraFields:{...row.extraFields},entiteEmetteur:{...row.entiteEmetteur},entiteDestinataire:{...row.entiteDestinataire} };
     setRows(p => { const i = p.findIndex(r => r.id === row.id); const c = [...p]; c.splice(i + 1, 0, nr); return c; });
   };
 
@@ -741,7 +823,12 @@ const EnregistrerCourrierListe: React.FC = () => {
   }, [entities, filterLevels]);
 
   const saveAll = async () => {
-    if (!user) return;
+    if (!user||savingLock.current) return;
+    if (referenceLoading || referenceError || !formConfig) {
+      setBatchNotice('Attendez le chargement complet du formulaire ou réessayez le chargement avant d’enregistrer.');
+      return;
+    }
+    setBatchNotice('');
     const newErr: Record<string, RowError> = {};
     let hasErr = false;
     for (const r of rows) {
@@ -751,18 +838,14 @@ const EnregistrerCourrierListe: React.FC = () => {
     }
     setErrors(newErr);
     if (hasErr) {
-      setDialog({
-        isOpen: true,
-        options: {
-          type: 'warning',
-          title: 'Champs requis manquants',
-          message: 'Certains champs obligatoires sont vides. Vérifiez les lignes marquées en rouge.',
-          confirmText: 'OK',
-          onConfirm: () => setDialog({ isOpen: false, options: { message: '' } }),
-        }
-      });
+      const invalid=rows.filter(row=>Object.keys(newErr[row.id]||{}).length);
+      setExpanded(previous=>({...previous,...Object.fromEntries(invalid.map(row=>[row.id,true]))}));
+      setBatchNotice(`${invalid.length} ligne(s) à compléter. Les champs obligatoires sont signalés dans chaque ligne.`);
+      const first=invalid[0];
+      if(first)requestAnimationFrame(()=>{const target=document.getElementById(`batch-row-${first.id}`);target?.focus({preventScroll:true});target?.scrollIntoView({block:'center',inline:'start',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});});
       return;
     }
+    savingLock.current=true;setSavePhase('creating');
     setSaving(true);
 
     // Filtrer les courriers en attente
@@ -782,7 +865,7 @@ const EnregistrerCourrierListe: React.FC = () => {
             onConfirm: () => setDialog({ isOpen: false, options: { message: '' } }),
           }
         });
-        setSaving(false);
+        finishSaving();
         return;
       }
 
@@ -797,13 +880,15 @@ const EnregistrerCourrierListe: React.FC = () => {
           : urgenceVal >= 5 ? Priorite.URGENTE
           : Priorite.NORMALE;
         const isInternal = r.type === TypeCourrier.INTERNE;
-        const extraFieldsCopy: Record<string, string> = { ...(r.referenceExterne ? { referenceExterne: r.referenceExterne } : {}), ...r.extraFields };
+        const extraFieldsCopy: Record<string, string> = { ...internalEntityFields(r.type,r.entiteEmetteur,r.entiteDestinataire,filterLevels,entities), ...(r.referenceExterne ? { referenceExterne: r.referenceExterne } : {}), ...r.extraFields };
         if (isInternal) {
+          Object.assign(extraFieldsCopy,internalEntityFields(r.type,r.entiteEmetteur,r.entiteDestinataire,filterLevels,entities));
           delete (extraFieldsCopy as any)['numero'];
           delete (extraFieldsCopy as any)['Numero'];
           delete (extraFieldsCopy as any)['NUMERO'];
         }
         const data: Omit<Courrier, 'id' | 'numero' | 'dateEnregistrement' | 'createdAt' | 'updatedAt'> & { numero?: string } = {
+          entiteNumerotationId: numberingEntityId || null,
           type: r.type, sens: r.sens, dateReception: new Date(r.dateReception),
           expediteur: r.expediteur.trim(), destinataire: r.destinataire.trim(),
           objet: r.objet.trim(), direction: r.direction || undefined,
@@ -828,19 +913,9 @@ const EnregistrerCourrierListe: React.FC = () => {
         const results = await Promise.allSettled(
           r.files.map(file => categorieFichierService.createFichier(c.id, file.name, file, undefined, uploadCreePar, file.size))
         );
-        const failed = results.filter(res => res.status === 'rejected').length;
-        if (failed > 0) {
-          setDialog({
-            isOpen: true,
-            options: {
-              type: 'warning',
-              title: 'Fichiers non uploadés',
-              message: `${failed} fichier(s) n'ont pas pu être uploadés pour le courrier ${c.numero || c.id}. Vous pouvez les ajouter plus tard depuis la page de détail du courrier.`,
-              confirmText: 'OK',
-              onConfirm: () => setDialog({ isOpen: false, options: { message: '' } }),
-            }
-          });
-        }
+        const failedNames=results.flatMap((result,index)=>result.status==='rejected'?[r.files![index].name]:[]);
+        setFileFailures(previous=>({...previous,[r.id]:failedNames}));
+
       };
 
       // Sauvegarder le mapping des catégories pour les courriers créés (non-bloquant)
@@ -848,7 +923,7 @@ const EnregistrerCourrierListe: React.FC = () => {
         if (!user?.id || createdCourriers.length === 0) return;
         const folderMapBatch: Record<string, string> = {};
         createdCourriers.forEach((c, idx) => {
-          const folderId = pendingRows.find(r => r.objet.trim() === c.objet)?.folderId || pendingRows[idx]?.folderId;
+          const folderId = batchSourceRow(c,pendingRows,requestIdByRow,idx)?.folderId;
           if (folderId) {
             folderMapBatch[String(c.id)] = folderId;
             const key = `courrier_folder_map_${user.id}`;
@@ -874,23 +949,22 @@ const EnregistrerCourrierListe: React.FC = () => {
       // serveur (timeout), si le fallback relance une ligne déjà créée, ou si
       // l'utilisateur relance l'enregistrement, l'API renvoie le courrier déjà
       // créé (même id) au lieu d'en créer un deuxième.
-      const genRequestId = (): string =>
-        (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-          ? crypto.randomUUID()
-          : `cl-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-      const requestIdByRow: Record<string, string> = {};
-      pendingRows.forEach(r => { requestIdByRow[r.id] = genRequestId(); });
+      const requestIdByRow=requestKeys.current;
+      pendingRows.forEach(row=>batchRequestId(requestIdByRow,row.id,()=>crypto.randomUUID()));
+
 
       // Créer un courrier + uploader ses fichiers, puis mettre à jour le statut (fallback séquentiel)
       const saveSingleLaravel = async (r: RowData): Promise<Courrier | null> => {
         try {
           const c = await courrierService.createCourrier(buildCourrierData(r));
+          rememberReceipt(r,c);
           await uploadFilesForRow(c, r);
           setStatus(p => ({ ...p, [r.id]: 'saved' }));
           return c;
         } catch (error) {
           console.error('[SaveAll] Erreur création courrier:', error);
           setStatus(p => ({ ...p, [r.id]: 'error' }));
+          setErrors(previous=>({...previous,[r.id]:{...previous[r.id],_server:error instanceof Error?error.message:'Enregistrement impossible.'}}));
           return null;
         }
       };
@@ -906,6 +980,9 @@ const EnregistrerCourrierListe: React.FC = () => {
         const bulkCreated = await courrierService.createCourriersBulk(bulkPayload);
         console.log(`[SaveAll] Bulk create terminé en ${(performance.now() - bulkStart).toFixed(0)}ms pour ${bulkCreated.length} courriers`);
 
+        const matched=bulkCreated.map((courrier,index)=>batchSourceRow(courrier,pendingRows,requestIdByRow,index));
+        if(bulkCreated.length!==pendingRows.length||matched.some(row=>!row)||new Set(matched.map(row=>row?.id)).size!==pendingRows.length)throw new Error('Réponse incomplète : vérification individuelle des lignes.');
+        bulkCreated.forEach((courrier,index)=>rememberReceipt(matched[index]!,courrier));
         created.push(...bulkCreated);
         const savedStatuses = pendingRows.reduce<Record<string, RowStatus>>((acc, r) => {
           acc[r.id] = 'saved';
@@ -913,24 +990,25 @@ const EnregistrerCourrierListe: React.FC = () => {
         }, {});
         setStatus(p => ({ ...p, ...savedStatuses }));
 
-        // Libérer l'UI immédiatement : le bouton arrête de tourner
+        // Keep the batch locked until attachments have finished.
         const successCount = bulkCreated.length;
         console.log(`[SaveAll] ${successCount}/${pendingRows.length} courriers sauvegardés en ${(performance.now() - saveStart).toFixed(0)}ms`);
         setSavedCount(x => x + successCount);
-        setSaving(false);
+
 
         // Upload fichiers et mapping catégories en arrière-plan (non bloquant pour l'UI)
         const uploadStart = performance.now();
-        Promise.allSettled(
+        setSavePhase('attachments');
+        await Promise.allSettled(
           bulkCreated.map((c, idx) => {
-            const r = pendingRows.find(row => row.objet.trim() === c.objet.trim()) || pendingRows[idx];
+            const r = batchSourceRow(c,pendingRows,requestIdByRow,idx);
             return r ? uploadFilesForRow(c, r) : Promise.resolve();
           })
         ).then(() => {
           console.log(`[SaveAll] Uploads fichiers terminés en ${(performance.now() - uploadStart).toFixed(0)}ms`);
         }).catch(e => console.warn('[SaveAll] Uploads fichiers échoués:', e));
         saveCategoryMapping(bulkCreated);
-
+        finishSaving();
         return;
       } catch (bulkError) {
         console.warn('[SaveAll] Échec bulk create, fallback séquentiel par lots de 5:', bulkError);
@@ -961,7 +1039,7 @@ const EnregistrerCourrierListe: React.FC = () => {
 
       setSavedCount(x => x + successCount);
       saveCategoryMapping(created);
-      setSaving(false);
+      finishSaving();
       return;
     }
     const totalPending = pendingRows.length;
@@ -978,11 +1056,13 @@ const EnregistrerCourrierListe: React.FC = () => {
           : Priorite.NORMALE;
 
         const courrierData = {
+          entiteNumerotationId: numberingEntityId || null,
           type: r.type, sens: r.sens, dateReception: new Date(r.dateReception),
           expediteur: r.expediteur.trim(), destinataire: r.destinataire.trim(),
           objet: r.objet.trim(), priorite: resolvedPriorite, enregistrePar: user.id,
           direction: r.direction || undefined, service: r.service || undefined,
           extraFields: {
+            ...internalEntityFields(r.type,r.entiteEmetteur,r.entiteDestinataire,filterLevels,entities),
             ...(r.referenceExterne ? { referenceExterne: r.referenceExterne } : {}),
             ...r.extraFields,
           },
@@ -1043,7 +1123,7 @@ const EnregistrerCourrierListe: React.FC = () => {
     }
 
     setSavedCount(x => x + successCount);
-    setSaving(false);
+    finishSaving();
   };
 
   if (!allowed) return (
@@ -1068,13 +1148,14 @@ const EnregistrerCourrierListe: React.FC = () => {
     const isExpanded = expandedFolderIds.has(folder.id);
     const folderRows = rows.filter(r => r.folderId === folder.id && status[r.id] !== 'saved');
     const totalCourriers = getTotalCourriersInFolder(folder.id);
+    if(!showEmptyFolders&&totalCourriers===0)return null;
     const isDraggedOver = draggedOverFolderId === folder.id;
 
     return (
       <React.Fragment key={`folder-${folder.id}`}>
         {/* Ligne catégorie */}
         <tr className={`bg-amber-50 border-b border-amber-100 ${isDraggedOver ? 'bg-blue-100' : ''}`}>
-          <td colSpan={7} className="px-3 py-2">
+          <td colSpan={6} className="px-3 py-2">
             <div
               className={`flex items-center gap-2 rounded-xl border-2 transition-all ${
                 isDraggedOver
@@ -1166,7 +1247,7 @@ const EnregistrerCourrierListe: React.FC = () => {
         {/* Mode déplacement - sélection de la catégorie cible */}
         {movingFolderId && (
           <tr className="bg-blue-50/50">
-            <td colSpan={7} className="px-3 py-2">
+            <td colSpan={6} className="px-3 py-2">
               <div className="flex items-center gap-2 text-sm text-blue-700">
                 <FontAwesomeIcon icon={faArrowsAlt} />
                 <span>Sélectionnez la catégorie de destination pour "{folders.find(f => f.id === movingFolderId)?.name}"</span>
@@ -1193,7 +1274,7 @@ const EnregistrerCourrierListe: React.FC = () => {
         {/* Champ inline pour créer un sous-catégorie */}
         {isExpanded && inlineAddParentId === folder.id && (
           <tr className="bg-amber-50/50">
-            <td colSpan={7} className="px-3 py-2">
+            <td colSpan={6} className="px-3 py-2">
               <div className="flex items-center gap-2 ml-4" style={{ paddingLeft: `${(level + 1) * 24 + 12}px` }}>
                 <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center">
                   <FontAwesomeIcon icon={faFolderPlus} className="text-amber-500 text-xs" />
@@ -1223,6 +1304,7 @@ const EnregistrerCourrierListe: React.FC = () => {
 
   const renderCourrierRow = (row: RowData, idx: number, level: number = 0) => {
     const st = status[row.id] || 'idle';
+    const letterNumber = receipts[row.id]?.reference || letterNumbers[draftRows.findIndex(draft => draft.id === row.id)] || '';
     const err = errors[row.id] || {};
     const isDragged = draggedRowId === row.id;
     const selectedDir = directions.find(d => d.nom === row.direction);
@@ -1230,33 +1312,42 @@ const EnregistrerCourrierListe: React.FC = () => {
       ? allServices.filter((s: any) => s.directionId === selectedDir.id)
       : allServices;
     const lborder = st === 'saved' ? '' : st === 'error' ? '' : st === 'saving' ? 'border-l-4 border-l-blue-400' : 'border-l-4 border-l-transparent';
-    const rowBg = st === 'saved' ? 'bg-emerald-50 border-l-4 border-l-emerald-400' : st === 'error' ? 'bg-red-50 border-l-4 border-l-red-400' : isDragged ? 'bg-blue-50' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50';
+    const rowBg = st === 'saved' ? 'bg-emerald-50 border-l-4 border-l-emerald-400' : (st === 'error'||Object.keys(err).length>0) ? 'bg-red-50 border-l-4 border-l-red-400' : isDragged ? 'bg-blue-50' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50';
 
     return (
       <React.Fragment key={row.id}>
         <tr
           className={`${rowBg} ${lborder} hover:bg-blue-50/20 focus-within:bg-blue-50/60 focus-within:ring-2 focus-within:ring-blue-400/30 focus-within:border-blue-200 transition-all group ${isDragged ? 'cursor-grabbing' : 'cursor-grab'}`}
-          draggable={st !== 'saved'}
+          id={`batch-row-${row.id}`} tabIndex={-1} aria-label={`Courrier ligne ${rows.findIndex(item=>item.id===row.id)+1}`}
+          draggable={!saving&&st !== 'saved'}
           onDragStart={(e) => handleRowDragStart(e, row.id)}
           onDragEnd={handleRowDragEnd}
           style={{ marginLeft: `${level * 20}px` }}
         >
           <td className="px-3 py-2 text-center">
-            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface-100 text-xs font-bold text-surface-500 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">{idx + 1}</span>
+            <button type="button" title="Ouvrir les détails de cette ligne" aria-label={`Compléter la ligne ${rows.findIndex(item=>item.id===row.id)+1}`} aria-expanded={!!expanded[row.id]} onClick={()=>toggleExpand(row.id)} className="batch-row-number">{rows.findIndex(item=>item.id===row.id)+1}</button>
           </td>
           {/* Colonne 2: Expediteur/Destinataire */}
           <td className="px-2 py-1.5">
+            <div className="batch-letter-reference"><span>N° de lettre</span><strong>{letterNumberLoading ? 'Chargement…' : letterNumber || 'À définir dans le registre'}</strong></div>
             {activeType === TypeCourrier.INTERNE ? (
-              <div className={`w-full px-2 py-1.5 rounded-lg border text-sm bg-slate-100 text-slate-600 cursor-not-allowed ${err.expediteur || err.destinataire ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}>
-                {row.sens === SensCourrier.ENTRANT ? row.expediteur : row.destinataire}
-                <span className="ml-2 text-xs text-slate-400">(via entités)</span>
+              <div className="batch-inline-entities">
+                <span className="batch-entity-caption">{row.sens===SensCourrier.ENTRANT?'Entité émettrice':'Entité destinataire'}</span>
+                {referenceLoading?<span role="status">Chargement de la structure…</span>:filterLevels.map((entityLevel,levelIndex)=>{
+                  const cascade=row.sens===SensCourrier.ENTRANT?row.entiteEmetteur:row.entiteDestinataire;
+                  const parent=getParentIdForLevel(levelIndex,cascade);
+                  if(levelIndex&&!parent)return null;
+                  const options=getEntitiesForLevel(entityLevel.code,parent);
+                  return <label key={entityLevel.code} htmlFor={`batch-entity-${row.id}-${entityLevel.code}`}><span>{entityLevel.libelleSingulier}</span><select id={`batch-entity-${row.id}-${entityLevel.code}`} aria-label={entityLevel.libelleSingulier+' — ligne '+(rows.findIndex(item=>item.id===row.id)+1)} value={cascade[entityLevel.code]||''} onChange={event=>row.sens===SensCourrier.ENTRANT?updEntiteEmetteur(row.id,entityLevel.code,event.target.value,levelIndex):updEntiteDestinataire(row.id,entityLevel.code,event.target.value,levelIndex)} disabled={saving||st==='saved'||referenceLoading}><option value="">Choisir…</option>{options.map(entity=><option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
+                })}
+                {(err.expediteur||err.destinataire)&&<span role="alert" className="text-xs text-red-600">{err.expediteur||err.destinataire}</span>}
               </div>
             ) : (
               <MaterialInput
                 label={row.sens === SensCourrier.ENTRANT ? 'Expéditeur' : 'Destinataire'}
                 value={row.sens === SensCourrier.ENTRANT ? row.expediteur : row.destinataire}
                 onChange={e => upd(row.id, row.sens === SensCourrier.ENTRANT ? 'expediteur' : 'destinataire', e.target.value)}
-                disabled={st === 'saved'}
+                disabled={saving || st === 'saved'}
                 error={err.expediteur || err.destinataire}
               />
             )}
@@ -1265,11 +1356,13 @@ const EnregistrerCourrierListe: React.FC = () => {
           <td className="px-2 py-1.5">
             <MaterialInput
               label="Objet du courrier"
+              required className="batch-object-input"
               value={row.objet}
               onChange={e => upd(row.id, 'objet', e.target.value)}
-              disabled={st === 'saved'}
+              disabled={saving || st === 'saved'}
               error={err.objet}
             />
+
           </td>
           {/* Colonne 4: Urgence (depuis extraFields) */}
           <td className="px-2 py-1.5 text-center">
@@ -1284,7 +1377,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                   <input
                     type="range" min={1} max={5} step={1}
                     value={numVal}
-                    disabled={st === 'saved'}
+                    disabled={saving || st === 'saved'}
                     onChange={e => updExtra(row.id, urgCol.name, e.target.value)}
                     style={{background: `linear-gradient(to right, ${colors[numVal-1]} ${((numVal-1)/4)*100}%, #e2e8f0 ${((numVal-1)/4)*100}%)`}}
                     className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed"
@@ -1298,7 +1391,7 @@ const EnregistrerCourrierListe: React.FC = () => {
             <select
               value={row.folderId}
               onChange={e => upd(row.id, 'folderId', e.target.value)}
-              disabled={st === 'saved'}
+              disabled={saving || st === 'saved'}
               className="px-2 py-1.5 text-sm border-2 border-slate-200 rounded-lg focus:border-amber-400 focus:outline-none bg-white disabled:opacity-60"
             >
               <option value="">— Non classé —</option>
@@ -1307,87 +1400,43 @@ const EnregistrerCourrierListe: React.FC = () => {
               ))}
             </select>
           </td>
-          <td className="px-3 py-2 text-center">
-            {st === 'saving' && <span className="inline-flex items-center gap-1 text-xs text-blue-500 font-medium"><FontAwesomeIcon icon={faSpinner} spin />…</span>}
-            {st === 'saved' && <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full"><FontAwesomeIcon icon={faCheckCircle} />OK</span>}
-            {st === 'error' && <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full"><FontAwesomeIcon icon={faTimesCircle} />Erreur</span>}
-            {st === 'idle' && <span className="w-2 h-2 rounded-full bg-surface-200 inline-block" />}
-          </td>
-          <td className="px-3 py-2 text-center">
-            <div className="flex items-center justify-center gap-1">
-              <button onClick={() => toggleExpand(row.id)} className={`p-1.5 rounded-lg transition-all ${expanded[row.id] ? 'bg-indigo-100 text-indigo-600' : 'bg-surface-100 text-surface-500 hover:bg-indigo-50 hover:text-indigo-500'}`}>
-                <FontAwesomeIcon icon={expanded[row.id] ? faChevronUp : faChevronDown} className="text-xs" />
-              </button>
-              <button onClick={() => dupRow(row)} className="p-1.5 rounded-lg hover:bg-blue-100 text-surface-400 hover:text-blue-600 transition-colors opacity-0 group-hover:opacity-100">
-                <FontAwesomeIcon icon={faCopy} className="text-xs" />
-              </button>
-              <button onClick={() => rmRow(row.id)} disabled={rows.length === 1 || st === 'saving'} className="p-1.5 rounded-lg hover:bg-red-100 text-surface-400 hover:text-red-600 transition-colors disabled:opacity-30 opacity-0 group-hover:opacity-100">
-                <FontAwesomeIcon icon={faTrash} className="text-xs" />
-              </button>
+          <td className="batch-item-end">
+            <div className="batch-inline-actions">
+              <button type="button" className="batch-details-icon" disabled={saving||st==='saved'} aria-label={`Reprendre les correspondants de la ligne ${rows.findIndex(item=>item.id===row.id)+1}`} title="Reprendre les correspondants dans une nouvelle ligne" onClick={()=>dupRow(row)}><FontAwesomeIcon icon={faCopy} aria-hidden="true"/></button>
+              <button type="button" className="batch-details-icon batch-delete-icon" disabled={saving||st==='saved'||rows.length===1} aria-label={`Supprimer la ligne ${rows.findIndex(item=>item.id===row.id)+1}`} title="Supprimer cette ligne" onClick={()=>rmRow(row.id)}><FontAwesomeIcon icon={faTrash} aria-hidden="true"/></button>
+            <button type="button" className="batch-details-icon" aria-expanded={!!expanded[row.id]} aria-controls={`batch-details-${row.id}`} aria-label={`${expanded[row.id]?'Masquer':'Afficher'} les détails de la ligne ${rows.findIndex(item=>item.id===row.id)+1}`} title={expanded[row.id]?'Masquer les détails':'Afficher les détails'} onClick={()=>toggleExpand(row.id)}>
+              <FontAwesomeIcon icon={expanded[row.id]?faChevronUp:faChevronDown} aria-hidden="true"/>
+            </button>
             </div>
           </td>
         </tr>
+        {Object.keys(err).length>0&&<tr className="batch-row-error"><td colSpan={6}><p role="alert">Ligne {rows.findIndex(item=>item.id===row.id)+1} : {Object.entries(err).map(([key,message])=>`${key==='_server'?'Enregistrement':({objet:'Objet',expediteur:'Expéditeur',destinataire:'Destinataire',dateReception:'Réception'} as Record<string,string>)[key]||extraColumns.find(column=>column.name===key)?.label||key} — ${message}`).join(' · ')}</p></td></tr>}
         {expanded[row.id] && (
-          <tr className={rowBg}>
-            <td colSpan={7} className="px-3 pb-3 pt-0">
-              <div className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+          <tr id={`batch-details-${row.id}`} className={rowBg}>
+            <td colSpan={6} className="px-3 pb-3 pt-0">
+              <div className="batch-detail-card">
                 <div className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-50 to-blue-50/60 border-b border-indigo-100">
                   <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
                     <FontAwesomeIcon icon={faBuilding} className="text-white" style={{fontSize: '0.6rem'}} />
                   </div>
-                  <span className="text-xs font-bold text-indigo-800">Classement &amp; Métadonnées</span>
+                  <span className="text-xs font-bold text-indigo-800">Détails du courrier · Ligne {rows.findIndex(item=>item.id===row.id)+1}</span>
                 </div>
-                <div className="p-4 space-y-4">
-                  {/* ── Organisation : INTERNE → cascade entités, EXTERNE → direction/service ── */}
-                  {activeType === TypeCourrier.INTERNE ? (
-                    <div className={`rounded-xl border-2 p-4 ${row.sens === SensCourrier.ENTRANT ? 'bg-blue-50 border-blue-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${row.sens === SensCourrier.ENTRANT ? 'bg-blue-600' : 'bg-emerald-600'}`}>
-                          <FontAwesomeIcon icon={faBuilding} className="text-white text-xs" />
-                        </div>
-                        <div>
-                          <p className={`text-xs font-bold ${row.sens === SensCourrier.ENTRANT ? 'text-blue-900' : 'text-emerald-900'}`}>
-                            {row.sens === SensCourrier.ENTRANT ? 'Entité Émettrice' : 'Entité Destinataire'}
-                          </p>
-                          <p className={`text-xs ${row.sens === SensCourrier.ENTRANT ? 'text-blue-600' : 'text-emerald-600'}`}>
-                            {row.sens === SensCourrier.ENTRANT ? 'Service / département émetteur' : 'Service / département destinataire'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        {filterLevels.map((level, lvlIdx) => {
-                          const cascade = row.sens === SensCourrier.ENTRANT ? row.entiteEmetteur : row.entiteDestinataire;
-                          const parentId = getParentIdForLevel(lvlIdx, cascade);
-                          const options = getEntitiesForLevel(level.code, parentId);
-                          const isVisible = lvlIdx === 0 || !!getParentIdForLevel(lvlIdx, cascade);
-                          if (!isVisible) return null;
-                          const borderCls = row.sens === SensCourrier.ENTRANT ? 'border-blue-200 focus:border-blue-500' : 'border-emerald-200 focus:border-emerald-500';
-                          const labelCls = row.sens === SensCourrier.ENTRANT ? 'text-blue-800' : 'text-emerald-800';
-                          return (
-                            <div key={level.code}>
-                              <label className={`block text-xs font-semibold mb-1 uppercase tracking-wide ${labelCls}`}>{level.libelleSingulier}</label>
-                              <select
-                                value={cascade[level.code] || ''}
-                                onChange={e => row.sens === SensCourrier.ENTRANT
-                                  ? updEntiteEmetteur(row.id, level.code, e.target.value, lvlIdx)
-                                  : updEntiteDestinataire(row.id, level.code, e.target.value, lvlIdx)}
-                                disabled={st === 'saved'}
-                                className={`w-full px-3 py-2 border-2 rounded-xl text-sm focus:outline-none bg-white disabled:opacity-60 ${borderCls}`}>
-                                <option value="">- Sélectionner -</option>
-                                {options.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
-                              </select>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {(row.sens === SensCourrier.ENTRANT ? row.expediteur : row.destinataire) && (
-                        <p className={`mt-2 text-xs font-medium px-3 py-1.5 rounded-lg flex items-center gap-2 bg-white/70 ${row.sens === SensCourrier.ENTRANT ? 'text-blue-800' : 'text-emerald-800'}`}>
-                          <FontAwesomeIcon icon={faCheck} className={row.sens === SensCourrier.ENTRANT ? 'text-blue-500' : 'text-emerald-500'} />
-                          {row.sens === SensCourrier.ENTRANT ? row.expediteur : row.destinataire}
-                        </p>
-                      )}
-                    </div>
-                  ) : null}
+                <div className="batch-detail-body">
+                  <div className="batch-detail-reference"><label>N° de lettre administratif<input readOnly aria-label={`Numéro de lettre de la ligne ${rows.findIndex(item=>item.id===row.id)+1}`} value={letterNumber} placeholder={letterNumberLoading ? 'Chargement du numéro…' : 'Sélectionner le registre du lot'} /></label><span>Prérempli selon les paramètres · confirmé à l’enregistrement</span></div>
+                  <div className="batch-section-label"><span>01</span> Correspondance</div>
+                  <div className="batch-correspondence-fields">
+                    <MaterialInput required label={row.sens===SensCourrier.ENTRANT?'Destinataire':'Expéditeur'} value={row.sens===SensCourrier.ENTRANT?row.destinataire:row.expediteur} onChange={e=>upd(row.id,row.sens===SensCourrier.ENTRANT?'destinataire':'expediteur',e.target.value)} disabled={saving||st==='saved'} error={row.sens===SensCourrier.ENTRANT?err.destinataire:err.expediteur}/>
+                    <MaterialInput required type="date" label="Date de réception" value={row.dateReception.slice(0,10)} onChange={e=>upd(row.id,'dateReception',e.target.value)} disabled={saving||st==='saved'} error={err.dateReception}/>
+                    <MaterialInput label="Référence du document d’origine" value={row.referenceExterne} onChange={e=>upd(row.id,'referenceExterne',e.target.value)} disabled={saving||st==='saved'}/>
+                  </div>
+                  <div className="batch-section-label"><span>02</span> Organisation et classement</div>
+                  <div className="batch-classification-fields">
+                    <label className="text-xs font-semibold text-slate-600">Dossier<select value={row.folderId} onChange={e=>upd(row.id,'folderId',e.target.value)} className={sel}><option value="">Non classé</option>{folders.map(folder=><option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
+                    {row.type !== TypeCourrier.INTERNE && <>
+                    <label className="text-xs font-semibold text-slate-600">Direction chargée du courrier<select className={sel+' mt-1'} value={row.direction} onChange={e=>upd(row.id,'direction',e.target.value)} disabled={saving||st==='saved'}><option value="">Choisir une direction</option>{Array.from(new Set([...directions.map(direction=>direction.nom),...entities.filter(entity=>['direction','direction_generale'].includes(entity.type)).map(entity=>entity.nom),...(row.direction?[row.direction]:[])])).sort().map(direction=><option key={direction} value={direction}>{direction}</option>)}</select></label>
+                    <label className="text-xs font-semibold text-slate-600">Service chargé du courrier<select className={sel+' mt-1'} value={row.service} onChange={e=>upd(row.id,'service',e.target.value)} disabled={saving||st==='saved'}><option value="">Choisir un service</option>{Array.from(new Set([...svcList.map(service=>service.nom),...(row.service?[row.service]:[])])).sort().map(service=><option key={service} value={service}>{service}</option>)}</select></label>
+                    </>}
+                  </div>
                   {/* ── Niveau d'urgence ── */}
                   {(() => {
                     const urgCol = extraColumns.find(c => c.name.toLowerCase().includes('urgenc') || c.label?.toLowerCase().includes('urgenc'));
@@ -1406,7 +1455,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                           <input
                             type="range" min={1} max={5} step={1}
                             value={numVal}
-                            disabled={st === 'saved'}
+                            disabled={saving || st === 'saved'}
                             onChange={e => updExtra(row.id, urgCol.name, e.target.value)}
                             style={{background: `linear-gradient(to right, ${colors[numVal-1]} ${((numVal-1)/4)*100}%, #e2e8f0 ${((numVal-1)/4)*100}%)`}}
                             className="flex-1 h-2 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed"
@@ -1420,12 +1469,12 @@ const EnregistrerCourrierListe: React.FC = () => {
                   {extraColumns.filter(col => !ESSENTIAL_TABLE_FIELDS.has(col.name) && !col.name.toLowerCase().includes('urgenc') && !col.label?.toLowerCase().includes('urgenc')).length > 0 && (
                     <div className="border-t border-surface-200 pt-4 mt-4">
                       <p className="text-xs font-bold text-surface-600 mb-3 uppercase tracking-wide">Autres informations</p>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {extraColumns.filter(col => !ESSENTIAL_TABLE_FIELDS.has(col.name) && !col.name.toLowerCase().includes('urgenc') && !col.label?.toLowerCase().includes('urgenc')).map(col => {
                           const isDirect = DIRECT_ROW_KEYS.has(col.name);
                           const val = isDirect ? String(row[col.name as keyof RowData] ?? '') : (row.extraFields[col.name] ?? '');
                           const errMsg = err[col.name];
-                          const dis = st === 'saved';
+                          const dis = saving || st === 'saved';
                           const chg = (v: string) => isDirect ? upd(row.id, col.name as keyof RowData, v) : updExtra(row.id, col.name, v);
                           const inp = `w-full px-3 py-2 rounded-xl border-2 text-sm focus:outline-none ${errMsg ? 'border-red-300 bg-red-50' : 'border-surface-200'} ${dis ? 'opacity-60 cursor-not-allowed' : ''}`;
                           return (
@@ -1439,6 +1488,8 @@ const EnregistrerCourrierListe: React.FC = () => {
                                 <MaterialDateTimeField value={val} onChange={(v) => chg(v || '')} label={col.label} disabled={dis} />
                               ) : col.type === 'textarea' ? (
                                 <MaterialInput label={col.label} value={val} onChange={e => chg(e.target.value)} disabled={dis} error={errMsg} required={col.required} multiline rows={3} placeholder={col.placeholder} />
+                              ) : col.type === 'slider' ? (
+                                <label className="block text-sm text-slate-700">{col.label} : {val || col.min || 0}<input type="range" className="mt-2 w-full accent-blue-600" min={col.min ?? 0} max={col.max ?? 100} step={col.step ?? 1} value={val || col.min || 0} onChange={e => chg(e.target.value)} disabled={dis} /></label>
                               ) : col.type === 'radio' && col.options?.length && col.options.length === 2 ? (
                                 <label className={`relative inline-flex items-center cursor-pointer ${dis ? 'cursor-not-allowed opacity-60' : ''}`}>
                                   <input
@@ -1449,7 +1500,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                                     className="sr-only peer"
                                   />
                                   <div className="w-11 h-6 bg-surface-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                  <span className="ml-2 text-sm font-medium text-surface-700">{val || col.options?.[0] || ''}</span>
+                                  <span className="ml-2 text-sm font-medium text-surface-700">{col.label} : {val || col.options?.[0] || ''}</span>
                                 </label>
                               ) : col.type === 'radio' && col.options?.length ? (
                                 <div className="flex flex-wrap gap-3">
@@ -1486,11 +1537,11 @@ const EnregistrerCourrierListe: React.FC = () => {
                   {/* ── Fichiers attachés ── */}
                   <div className="border-t border-surface-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-bold text-surface-600 uppercase tracking-wide">Fichiers attachés</p>
+                      <p className="batch-files-heading">Pièces jointes <span>{row.files?.length || 0}</span></p>
                       <div className="flex gap-2">
                         <button
                           onClick={() => openAddFileModal(row.id)}
-                          disabled={st === 'saved'}
+                          disabled={saving || st === 'saved'}
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           <FontAwesomeIcon icon={faUpload} />
@@ -1502,7 +1553,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                             setScanModalTarget({ rowId: row.id });
                             setShowScanModal(true);
                           }}
-                          disabled={st === 'saved' || scanning}
+                          disabled={saving || st === 'saved' || scanning}
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           <FontAwesomeIcon icon={faPrint} />
@@ -1538,7 +1589,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                                     return r;
                                   }));
                                 }}
-                                disabled={st === 'saved'}
+                                disabled={saving || st === 'saved'}
                                 className="p-1.5 rounded-lg hover:bg-red-100 text-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                               >
                                 <FontAwesomeIcon icon={faTimes} className="text-xs" />
@@ -1561,7 +1612,11 @@ const EnregistrerCourrierListe: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-surface-50 to-white">
+    <div className="batch-entry min-h-screen bg-gradient-to-b from-surface-50 to-white">
+      {(referenceLoading || referenceError) && <div className="mx-4 my-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900" role={referenceError ? 'alert' : 'status'} aria-live="polite">
+        {referenceLoading ? 'Chargement du formulaire, de l’organigramme et des dossiers…' : referenceError}
+        {referenceError && !referenceLoading && <button type="button" className="ml-3 font-semibold underline" onClick={() => setReferenceAttempt(attempt => attempt + 1)}>Réessayer</button>}
+      </div>}
       {/* Header */}
       <div className="bg-white/95 backdrop-blur border-b border-surface-200 shadow-sm sticky top-0 z-20">
         <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
@@ -1574,7 +1629,7 @@ const EnregistrerCourrierListe: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold text-surface-900">Saisie en liste</h1>
+                <h1 className="text-base font-bold text-surface-900">Enregistrement en liste</h1>
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${
                   activeSens === SensCourrier.ENTRANT ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
                 }`}>{activeSens === SensCourrier.ENTRANT ? '↓ Entrant' : '↑ Sortant'}</span>
@@ -1596,12 +1651,12 @@ const EnregistrerCourrierListe: React.FC = () => {
               </span>
             )}
             <button onClick={createFolder} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-medium border border-amber-200 transition-colors">
-              <FontAwesomeIcon icon={faFolder} className="text-xs" />Nouvelle catégorie
+              <FontAwesomeIcon icon={faFolder} className="text-xs" />Nouveau dossier
             </button>
-            <button onClick={addRow} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-100 text-surface-700 hover:bg-surface-200 text-sm font-medium border border-surface-200 transition-colors">
+            <button disabled={saving} onClick={addRow} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-100 text-surface-700 hover:bg-surface-200 text-sm font-medium border border-surface-200 transition-colors">
               <FontAwesomeIcon icon={faPlus} className="text-xs" />Ajouter
             </button>
-            <button onClick={saveAll} disabled={saving || allSaved || !pending.length}
+            <button onClick={saveAll} disabled={saving || referenceLoading || !!referenceError || allSaved || !pending.length}
               className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold shadow-md hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
               {saving ? <><FontAwesomeIcon icon={faSpinner} spin />En cours…</>
                 : allSaved ? <><FontAwesomeIcon icon={faCheckCircle} />Tout enregistré</>
@@ -1612,13 +1667,22 @@ const EnregistrerCourrierListe: React.FC = () => {
         </div>
       </div>
 
+      <div className="batch-overview">
+        <div><span>Votre lot de courriers</span><strong>{pending.length} à enregistrer</strong><p>Renseignez les correspondants et l’objet, puis ouvrez les détails pour les autres champs et les pièces.</p></div>
+        <div className="batch-metrics"><span><b>{rows.length}</b>Lignes</span><span><b>{rows.filter(row=>status[row.id]==='saved').length}</b>Enregistrées</span><span><b>{rows.filter(row=>Object.keys(errors[row.id]||{}).length>0).length}</b>À vérifier</span></div>
+      </div>
+      <div className="batch-register"><button type="button" disabled={saving} aria-expanded={showNumbering} onClick={()=>setShowNumbering(value=>!value)}>Numérotation des lettres <span>{showNumbering?'Réduire':'Choisir le registre'}</span></button>{showNumbering&&authReady&&!locked&&user?.id&&<CourrierNumberingFields value={numberingEntityId} onChange={setNumberingEntityId}/>}
+        <div className="batch-numbering-note" role={letterNumberError?'alert':'status'}><span>{letterNumberError || (letterNumberLoading ? 'Préparation des numéros de lettres…' : 'Numéros préremplis selon le registre. L’attribution définitive intervient à l’enregistrement.')}</span><button type="button" disabled={letterNumberLoading||saving} onClick={()=>setLetterNumberRefresh(value=>value+1)}>Actualiser</button>{user?.role===Role.SUPER_ADMIN&&<Link to="/parametres?onglet=numerotation">Paramétrer</Link>}</div></div>
+      {batchNotice&&<div className="batch-notice" role="alert">{batchNotice}</div>}
+      {saving&&<div className="batch-progress" role="status"><FontAwesomeIcon icon={faSpinner} spin/><span>{savePhase==='attachments'?'Transfert des pièces jointes…':'Enregistrement des courriers…'}</span><progress max={rows.length} value={rows.filter(row=>status[row.id]==='saved').length}/><span>Gardez cette page ouverte jusqu’à la fin.</span></div>}
+      {Object.keys(receipts).length>0&&<section className="batch-receipts" aria-label="Résultats de l’enregistrement"><h2>Courriers enregistrés</h2>{Object.entries(receipts).map(([rowId,result])=><div key={rowId}><FontAwesomeIcon icon={faCheckCircle}/><Link to={`/courriers/${result.id}`}><strong>{result.reference}</strong><span>{result.subject}</span></Link>{fileFailures[rowId]?.length>0&&<p role="alert">Pièces à reprendre : {fileFailures[rowId].join(', ')}. Ouvrez le courrier pour les ajouter.</p>}</div>)}</section>}
       {/* Config bar */}
       <div className="px-4 sm:px-6 pt-4 pb-2">
         <div className="flex flex-wrap items-center gap-3 p-3 rounded-2xl bg-white border border-surface-200 shadow-sm">
           <span className="text-xs font-bold text-surface-400 uppercase tracking-widest">Type</span>
           <div className="flex items-center bg-surface-100 rounded-xl p-0.5">
             {Object.values(SensCourrier).map(s => (
-              <button key={s} onClick={() => setActiveSens(s)}
+              <button disabled={saving} key={s} onClick={() => setActiveSens(s)}
                 className={`px-3 py-1.5 rounded-[10px] text-xs font-bold transition-all ${
                   activeSens === s
                     ? 'bg-white shadow text-blue-600 border border-surface-200'
@@ -1630,7 +1694,7 @@ const EnregistrerCourrierListe: React.FC = () => {
           </div>
           <div className="flex items-center bg-surface-100 rounded-xl p-0.5">
             {Object.values(TypeCourrier).map(t => (
-              <button key={t} onClick={() => setActiveType(t)}
+              <button disabled={saving} key={t} onClick={() => setActiveType(t)}
                 className={`px-3 py-1.5 rounded-[10px] text-xs font-bold transition-all ${
                   activeType === t
                     ? 'bg-white shadow text-indigo-600 border border-surface-200'
@@ -1640,16 +1704,10 @@ const EnregistrerCourrierListe: React.FC = () => {
               </button>
             ))}
           </div>
-          <div className="h-4 w-px bg-surface-200 hidden sm:block" />
+          <button type="button" aria-pressed={showEmptyFolders} onClick={()=>setShowEmptyFolders(value=>!value)} className="batch-folder-toggle">{showEmptyFolders?'Masquer les dossiers vides':'Afficher les dossiers vides'}</button><div className="h-4 w-px bg-surface-200 hidden sm:block" />
           {!formConfig && (
             <span className="inline-flex items-center gap-1.5 text-xs text-surface-400">
               <FontAwesomeIcon icon={faSpinner} spin className="text-blue-400" />Chargement…
-            </span>
-          )}
-          {formConfig && extraColumns.length > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 text-xs font-semibold border border-indigo-100">
-              <FontAwesomeIcon icon={faCheckCircle} />
-              {extraColumns.length} champ{extraColumns.length > 1 ? 's' : ''} configuré{extraColumns.length > 1 ? 's' : ''}
             </span>
           )}
           {formConfig && extraColumns.length === 0 && (
@@ -1663,18 +1721,17 @@ const EnregistrerCourrierListe: React.FC = () => {
       </div>
 
       {/* Table - Sans scroll horizontal, colonnes essentielles uniquement */}
-      <div className="px-4 sm:px-6 pb-32">
+      <div className="batch-table-area px-4 sm:px-6 pb-4">
         <div className="rounded-2xl border border-surface-200 shadow-sm">
-          <table className="w-full text-sm">
+          <fieldset disabled={saving} className="min-w-0 border-0 p-0 m-0"><table className="w-full text-sm" aria-label="Courriers du lot à enregistrer" aria-busy={saving}><caption>Votre liste de saisie · Complétez une ligne, puis dépliez ses détails pour le classement et les pièces jointes.</caption>
           <thead>
             <tr className="bg-gradient-to-r from-surface-50 to-surface-50/50 border-b-2 border-surface-100">
               <th className="px-3 py-3 text-center w-10 text-xs font-bold text-surface-400">#</th>
-              <th className="px-3 py-3 text-left text-xs font-bold text-surface-600 uppercase tracking-wider">{activeSens === SensCourrier.ENTRANT ? 'Expéditeur' : 'Destinataire'}</th>
+              <th className="px-3 py-3 text-left text-xs font-bold text-surface-600 uppercase tracking-wider">{activeSens === SensCourrier.ENTRANT ? 'N° de lettre / Expéditeur' : 'N° de lettre / Destinataire'}</th>
               <th className="px-3 py-3 text-left w-64 text-xs font-bold text-surface-600 uppercase tracking-wider">Objet</th>
               <th className="px-3 py-3 text-center w-28 text-xs font-bold text-surface-600 uppercase tracking-wider">Urgence</th>
               <th className="px-3 py-3 text-left w-40 text-xs font-bold text-surface-600 uppercase tracking-wider">Catégorie</th>
-              <th className="px-3 py-3 text-center w-20 text-xs font-bold text-surface-600 uppercase tracking-wider">État</th>
-              <th className="px-3 py-3 text-center w-24 text-xs font-bold text-surface-600 uppercase tracking-wider">Actions</th>
+              <th className="px-3 py-3 text-center w-24 text-xs font-bold text-surface-600 uppercase tracking-wider"><span className="sr-only">Détails</span></th>
             </tr>
           </thead>
           <tbody>
@@ -1685,7 +1742,7 @@ const EnregistrerCourrierListe: React.FC = () => {
               return (
                 <React.Fragment key="unassigned">
                   <tr className="bg-slate-50/80 border-b border-slate-200">
-                    <td colSpan={7} className="px-3 py-2">
+                    <td colSpan={6} className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center">
                           <FontAwesomeIcon icon={faFolderOpen} className="text-white text-sm" />
@@ -1706,7 +1763,7 @@ const EnregistrerCourrierListe: React.FC = () => {
             {/* Champ inline pour créer une catégorie racine */}
             {inlineAddRoot && (
               <tr className="bg-amber-50/50">
-                <td colSpan={7} className="px-3 py-2">
+                <td colSpan={6} className="px-3 py-2">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
                       <FontAwesomeIcon icon={faFolderPlus} className="text-amber-500 text-sm" />
@@ -1729,18 +1786,18 @@ const EnregistrerCourrierListe: React.FC = () => {
               </tr>
             )}
           </tbody>
-          </table>
+          </table></fieldset>
         </div>
       </div>
 
       <div className="px-4 sm:px-6">
-        <button onClick={addRow} className="mt-3 w-full py-3 rounded-2xl border-2 border-dashed border-surface-200 text-surface-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50/50 text-sm font-semibold transition-all flex items-center justify-center gap-2 group">
+        <button disabled={saving} onClick={addRow} className="mt-3 w-full py-3 rounded-2xl border-2 border-dashed border-surface-200 text-surface-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50/50 text-sm font-semibold transition-all flex items-center justify-center gap-2 group">
           <span className="w-6 h-6 rounded-full border-2 border-current flex items-center justify-center group-hover:bg-blue-500 group-hover:border-blue-500 group-hover:text-white transition-all"><FontAwesomeIcon icon={faPlus} className="text-xs" /></span>
           Ajouter une ligne
         </button>
       </div>
 
-      <div className="px-4 sm:px-6 pb-8">
+      <div className="batch-save-bar px-4 sm:px-6 pb-8">
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-surface-200 shadow-sm">
           <div className="flex items-center gap-3 text-sm">
             <span className="font-semibold text-surface-700">{rows.length} ligne{rows.length > 1 ? 's' : ''}</span>
@@ -1754,7 +1811,7 @@ const EnregistrerCourrierListe: React.FC = () => {
               </span>
             )}
           </div>
-          <button onClick={saveAll} disabled={saving || allSaved || !pending.length}
+          <button onClick={saveAll} disabled={saving || referenceLoading || !!referenceError || allSaved || !pending.length}
             className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold shadow-md hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
             {saving ? <><FontAwesomeIcon icon={faSpinner} spin />En cours…</>
               : allSaved ? <><FontAwesomeIcon icon={faCheckCircle} />Tout enregistré</>

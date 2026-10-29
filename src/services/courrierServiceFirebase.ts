@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 /**
  * Service de courriers — Redux + API Laravel (MySQL) uniquement.
  * L'insertion, la mise à jour et la suppression des courriers passent par l'API Laravel, pas par Firestore.
@@ -686,7 +687,7 @@ class CourrierServiceFirebase {
               NotificationHelper.createEcheance({
                 userId: assignation.assigneA,
                 courrierId: assignation.courrierId,
-                courrierNumero: courrier.numero,
+                courrierNumero: courrierReferences(courrier),
                 dateEcheance: dateEcheance,
                 priority: isDepassee ? 'urgent' : 'high'
               });
@@ -853,7 +854,7 @@ class CourrierServiceFirebase {
               id: w.id,
               workflowEtapeId: w.id,
               courrierId: w.courrierId,
-              courrierNumero: c.numero,
+              courrierNumero: courrierReferences(c),
               courrierObjet: c.objet,
               etape: w.etape,
               assigneA: w.assigneA,
@@ -921,79 +922,8 @@ class CourrierServiceFirebase {
     if (laravelApiService.isConfigured()) {
       try {
         const created = await laravelApiService.createAnnotation({ courrierId: data.courrierId, auteur: data.auteur, contenu: data.contenu, type: data.type, workflowEtapeId: data.workflowEtapeId, fichiers: data.fichiers });
-        const recipients = new Set<string>();
-        const courrier = this.getCourrierById(data.courrierId);
-        if (courrier?.enregistrePar) recipients.add(courrier.enregistrePar);
-        try {
-          const assignations = await this.getAssignationsByCourrier(data.courrierId);
-          assignations.forEach((a) => a.assigneA && recipients.add(a.assigneA));
-        } catch {}
-        recipients.delete(data.auteur);
-        const message = courrier?.numero ? `Annotation ${data.type.toLowerCase()} sur le courrier ${courrier.numero}` : `Annotation ${data.type.toLowerCase()} ajoutée`;
-        
-        // Créer des notifications pour tous les destinataires
-        recipients.forEach((userId) => {
-          notificationService.createNotification({ userId, type: 'courrier', title: 'Nouvelle annotation', message, relatedId: data.courrierId, relatedType: 'courrier', priority: 'normal' }).catch(() => {});
-        });
-        
-        // Créer un rappel pour les annotations importantes (MINUTE et NOTE)
-        if (data.type === 'MINUTE' || data.type === 'NOTE') {
-          const rappelMessage = courrier?.numero 
-            ? `Rappel: Annotation ${data.type.toLowerCase()} importante sur le courrier ${courrier.numero}`
-            : `Rappel: Annotation ${data.type.toLowerCase()} importante ajoutée`;
-          
-          // Créer un rappel pour le lendemain à 9h
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          tomorrow.setHours(9, 0, 0, 0);
-          
-          recipients.forEach((userId) => {
-            // Utiliser laravelApiService pour créer le rappel
-            laravelApiService.createRappel({
-              assignationId: '', // Pas d'assignation spécifique pour les rappels d'annotations
-              courrierId: data.courrierId,
-              dateRappel: tomorrow,
-              message: rappelMessage
-            }).catch(() => {});
-          });
-          
-          console.log('📅 Rappel créé pour annotation', data.type, 'à', tomorrow.toLocaleDateString());
-        }
-        
-        // ── Règle métier : DG/Directeur annote un courrier en attente ou orienté ──────────────────
-        // 1. Passer le courrier à EN_TRAITEMENT
-        // 2. Terminer l'étape workflow "Attente DG" si elle existe
-        const auteurUser = adminService.getUserById(data.auteur);
-        const statutsOrientation = [StatutCourrier.EN_ATTENTE_DG, StatutCourrier.ORIENTE_DG, StatutCourrier.ORIENTE_DIRECTEUR];
-        if (
-          (auteurUser?.role === Role.DIRECTEUR_GENERAL || auteurUser?.role === Role.DIRECTEUR) &&
-          courrier?.statut &&
-          statutsOrientation.includes(courrier.statut)
-        ) {
-          try {
-            await store.dispatch(updateCourrier({ id: data.courrierId, updates: { statut: StatutCourrier.EN_TRAITEMENT } }));
-            console.log(`✅ ${courrier.statut} → EN_TRAITEMENT (annotation par ${auteurUser?.role})`);
-          } catch (e) { console.warn(`${courrier.statut} → EN_TRAITEMENT échoué:`, e); }
-
-          // Terminer l'étape workflow "Attente DG" / "En attente DG"
-          try {
-            const etapes = await laravelApiService.getWorkflowEtapesByCourrier(data.courrierId);
-            const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-            const attenteDG = etapes.find(w =>
-              w.statut !== 'TERMINE' &&
-              normalize(w.etape || '').includes('attente') &&
-              (normalize(w.etape || '').includes('dg') || normalize(w.etape || '').includes('directeur general') || normalize(w.etape || '').includes('directeur général'))
-            );
-            if (attenteDG) {
-              await laravelApiService.updateWorkflowEtape(attenteDG.id, {
-                statut: 'TERMINE',
-                dateFin: new Date(),
-              });
-            }
-          } catch (e) { console.warn('Terminaison étape Attente DG échouée:', e); }
-        }
-        // ────────────────────────────────────────────────────────────────────────
-
+        const courrier=this.getCourrierById(data.courrierId);
+        const auteurUser=adminService.getUserById(data.auteur);
         // Notifier en temps réel les autres onglets de la création de l'annotation
         realTimeTaskSyncService.notifyAnnotationCreated(
           data.courrierId,
@@ -1182,7 +1112,7 @@ class CourrierServiceFirebase {
               userId: data.assigneA,
               assignationId: created.id,
               courrierId: data.courrierId,
-              courrierNumero: courrier.numero,
+              courrierNumero: courrierReferences(courrier),
               instructions: data.instructions
             });
             
@@ -1191,7 +1121,7 @@ class CourrierServiceFirebase {
               console.log('🎯 GEORGE MERCIER: Création de notification d\'assignation!');
               console.log('🎯 GEORGE MERCIER: Détails notification:', {
                 assignationId: created.id,
-                courrierNumero: courrier.numero,
+                courrierNumero: courrierReferences(courrier),
                 instructions: data.instructions
               });
             }
@@ -1203,9 +1133,9 @@ class CourrierServiceFirebase {
             const notification = NotificationHelper.createWorkflow({
               userId: data.assigneA,
               courrierId: data.courrierId,
-              courrierNumero: courrier.numero,
+              courrierNumero: courrierReferences(courrier),
               etape: 'Assignation reçue',
-              message: `Vous avez reçu une nouvelle assignation pour le courrier "${courrier.numero}"${data.instructions ? ` - ${data.instructions}` : ''}${data.dateEcheance ? ` - Échéance: ${new Date(data.dateEcheance).toLocaleDateString('fr-FR')}` : ''}`,
+              message: `Vous avez reçu une nouvelle assignation pour le courrier "${courrierReferences(courrier)}"${data.instructions ? ` - ${data.instructions}` : ''}${data.dateEcheance ? ` - Échéance: ${new Date(data.dateEcheance).toLocaleDateString('fr-FR')}` : ''}`,
               userRole: assignedUser?.role
             });
             console.log('✅ Notification d\'assignation créée:', notification);
@@ -1379,12 +1309,6 @@ class CourrierServiceFirebase {
           actionSiVrai: data.actionSiVrai,
           actionSiFaux: data.actionSiFaux,
         });
-        if (data.assigneA) {
-          try {
-            await this.createAssignation({ courrierId: data.courrierId, assigneA: data.assigneA, assignePar: data.creePar, statut: 'EN_ATTENTE', instructions: data.etape ? `Étape workflow : ${data.etape}` : undefined });
-          } catch {}
-          notificationService.createNotification({ userId: data.assigneA, type: 'workflow', title: 'Nouvelle étape assignée', message: `${data.etape} vous est assignée sur le courrier ${data.courrierId}`, relatedId: data.courrierId, relatedType: 'courrier', priority: 'normal' }).catch(() => {});
-        }
         localStorage.removeItem(`workflows_${data.courrierId}`);
         return created;
       } catch (e) {
@@ -1448,8 +1372,9 @@ class CourrierServiceFirebase {
   async updateWorkflowEtapeAsync(id: string, updates: Partial<WorkflowEtape>): Promise<WorkflowEtape | null> {
     if (laravelApiService.isConfigured()) {
       try {
-        await laravelApiService.updateWorkflowEtape(id, updates);
-        return { id, ...updates } as WorkflowEtape;
+        const saved = await laravelApiService.updateWorkflowEtape(id, updates);
+        localStorage.removeItem(`workflows_${saved.courrierId}`);
+        return saved;
       } catch (e) {
         console.warn('updateWorkflowEtapeAsync Laravel échoué:', e);
         throw e;

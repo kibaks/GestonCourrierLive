@@ -1,3 +1,4 @@
+import { courrierReferences } from '../utils/courrierReferences';
 import React, { Suspense, useState, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -1439,7 +1440,7 @@ const Archive3DView: React.FC<Archive3DViewProps> = (props) => {
                             }`} 
                           />
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm text-surface-900 truncate">{courrier.numero}</p>
+                            <p className="font-semibold text-sm text-surface-900 truncate">{courrierReferences(courrier)}</p>
                             <p className="text-xs text-surface-600 truncate">{courrier.objet?.replace(/<[^>]*>/g, '') || ''}</p>
                           </div>
                         </div>
@@ -1457,7 +1458,7 @@ const Archive3DView: React.FC<Archive3DViewProps> = (props) => {
                     <h4 className="font-bold text-surface-900">Contenu du courrier</h4>
                   </div>
                   <div className="space-y-2 text-sm mb-3">
-                    <p><span className="font-semibold">Numéro:</span> {selectedCourrier.numero}</p>
+                    <p><span className="font-semibold">Numéro:</span> {courrierReferences(selectedCourrier)}</p>
                     <p><span className="font-semibold">Objet:</span> {selectedCourrier.objet?.replace(/<[^>]*>/g, '') || ''}</p>
                   </div>
                   <div className="border-t border-surface-200 pt-3 mt-3">

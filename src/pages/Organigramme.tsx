@@ -80,6 +80,9 @@ import { adminService } from '../services/adminService';
 import { entiteOrganisationnelleService } from '../services/entiteOrganisationnelleService';
 import { entiteTypeService } from '../services/entiteTypeService';
 import { laravelApiService } from '../services/laravelApiService';
+import {buildOrganisationTree} from '../components/organigramme/buildOrganisationTree';
+import OrganisationChart from '../components/organigramme/OrganisationChart';
+import OrganisationExplorer from '../components/organigramme/OrganisationExplorer';
 import SearchableSelect from '../components/SearchableSelect';
 
 // Stats dossiers par utilisateur (en cours, traité, autres) pour badges organigramme
@@ -176,6 +179,7 @@ export function nodeCourrierRoles(node: OrganigrammeNode): string[] {
 
 const Organigramme: React.FC = () => {
   const { user } = useAuth();
+  const [viewMode, setViewMode] = useState<'chart'|'explorer'|'canvas'>('chart');
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -503,10 +507,15 @@ const Organigramme: React.FC = () => {
       directionService.initializeDemoData();
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      let org = organigrammeService.buildOrganigramme();
+      let org = laravelApiService.isConfigured() ? buildOrganisationTree(entiteOrganisationnelleService.getAllEntities(), adminService.getAllUsers()) : organigrammeService.buildOrganigramme();
       
+      if (laravelApiService.isConfigured() && user && ![Role.SUPER_ADMIN,Role.DIRECTEUR_GENERAL,Role.SECRETAIRE].includes(user.role)) {
+        const findUnit=(items:OrganigrammeNode[]):OrganigrammeNode|undefined=>{for(const node of items){if(node.id===`ent-${user.entiteId}`)return node;const found=findUnit(node.children||[]);if(found)return found;}return undefined;};
+        const ownUnit=findUnit(org);org=ownUnit?[ownUnit]:[];
+      }
+
       // Pour les chefs de division, charger l'organigramme à partir de leur division
-      if (user && user.role === Role.CHEF_SERVICE && user.service) {
+      if (!laravelApiService.isConfigured() && user && user.role === Role.CHEF_SERVICE && user.service) {
         console.log('🎯 Chargement organigramme pour chef de division:', user.service);
         org = organigrammeService.buildOrganigrammeFromUserDivision(user);
       }
@@ -522,11 +531,11 @@ const Organigramme: React.FC = () => {
       const savedPositions = localStorage.getItem('organigramme_positions');
       const savedCollapsed = localStorage.getItem('organigramme_collapsed');
       
-      if (org.length === 0) {
+      if (org.length === 0 && !laravelApiService.isConfigured()) {
         org = createDemoOrganigramme();
       }
       
-      const filtered = organigrammeService.filterByAccess(org, user);
+      const filtered = laravelApiService.isConfigured() ? org : organigrammeService.filterByAccess(org, user);
       console.log('🔍 Organigramme filtré pour chef de division:', {
         avantFiltre: org.length,
         apresFiltre: filtered.length,
@@ -2113,6 +2122,10 @@ const Organigramme: React.FC = () => {
     );
   }
 
+  if (viewMode === 'chart') return <OrganisationChart nodes={organigramme} onDirectory={() => setViewMode('explorer')} onEditor={() => {setViewMode('canvas');setTimeout(() => centerView(nodePositions),100);}} onRefresh={() => void loadOrganigramme()}/>;
+
+  if (viewMode === 'explorer') return <OrganisationExplorer nodes={organigramme} onOpenCanvas={() => setViewMode('chart')} onRefresh={() => void loadOrganigramme()} stats={userDossierStats}/>;
+
   return (
     <div 
       ref={containerRef}
@@ -2120,6 +2133,7 @@ const Organigramme: React.FC = () => {
     >
       {/* Zone principale : bandeau ARMP + flux courrier + barre + canvas */}
       <div className="flex-1 flex flex-col overflow-hidden w-full min-w-0">
+        <button type="button" onClick={() => setViewMode('chart')} className="org-return-explorer">← Revenir à l’organigramme</button>
         {/* Bandeau organisation : ARMP */}
         <div className="flex items-center justify-between gap-4 px-5 py-3 bg-gradient-to-r from-blue-950 via-blue-900 to-blue-800 text-white flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">

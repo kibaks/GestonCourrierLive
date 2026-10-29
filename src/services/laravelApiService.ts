@@ -236,7 +236,7 @@ const API_EXCLUDED_FIELDS = new Set([
 ]);
 
 /** Préparer un courrier pour l'envoi API (dates en ISO string + champs requis + extraFields/sens) */
-function prepareCourrierForApi(c: Partial<Courrier>): Record<string, unknown> {
+function prepareCourrierForApi(c: Partial<Courrier>, partial = false): Record<string, unknown> {
   // Copie défensive : exclure champs UI-only et tout objet File / FileList non sérialisable
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(c as Record<string, unknown>)) {
@@ -271,10 +271,10 @@ function prepareCourrierForApi(c: Partial<Courrier>): Record<string, unknown> {
   if ('objet' in out && (out.objet === null || String(out.objet).trim() === '')) {
     out.objet = 'Sans objet';
   }
-  if (out.type === undefined || out.type === null || String(out.type).trim() === '') {
+  if (!partial && (out.type === undefined || out.type === null || String(out.type).trim() === '')) {
     out.type = 'EXTERNE';
   }
-  if (!out.dateReception) {
+  if (!partial && !out.dateReception) {
     out.dateReception = new Date().toISOString();
   }
   // Garantir l'envoi des champs du formulaire (MySQL via Laravel)
@@ -519,7 +519,7 @@ class LaravelApiService {
   async updateCourrier(id: string, updates: Partial<Courrier>): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée (VITE_LARAVEL_API_URL)');
     const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(id)}`;
-    const body = prepareCourrierForApi(updates);
+    const body = prepareCourrierForApi(updates, true);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000); // Timeout 30s
@@ -1079,6 +1079,7 @@ class LaravelApiService {
       service: u.service != null ? String(u.service) : undefined,
       entiteId: entiteId != null ? String(entiteId) : undefined,
       estSecrétaireDG: Boolean(u.estSecrétaireDG ?? u.est_secretaire_dg ?? false),
+      photoUrl: u.photoUrl != null ? String(u.photoUrl) : u.photo_url != null ? String(u.photo_url) : undefined,
       actif: Boolean(u.actif),
       permissions: Array.isArray(u.permissions) ? u.permissions as Permission[] : [],
       dateCreation: new Date(),
@@ -1100,6 +1101,7 @@ class LaravelApiService {
     });
     if (!res.ok) return null;
     const data = await res.json();
+    if (data?.twoFactorRequired && data?.challenge) throw Object.assign(new Error('Code de sécurité requis.'), { challenge: data.challenge });
     const token = data?.token;
     return typeof token === 'string' ? token : null;
   }
@@ -1592,7 +1594,7 @@ class LaravelApiService {
     return parseWorkflowEtapeFromApi(data?.data ?? data);
   }
 
-  async updateWorkflowEtape(id: string, updates: Partial<WorkflowEtape>): Promise<void> {
+  async updateWorkflowEtape(id: string, updates: Partial<WorkflowEtape>): Promise<WorkflowEtape> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const payload: Record<string, unknown> = {};
     if (updates.etape != null) payload.etape = updates.etape;
@@ -1603,6 +1605,9 @@ class LaravelApiService {
     if (updates.commentaire != null) payload.commentaire = updates.commentaire;
     if (updates.dureeEstimee != null) payload.dureeEstimee = updates.dureeEstimee;
     if (updates.ordre != null) payload.ordre = updates.ordre;
+    if (updates.declencheur != null) payload.declencheur = updates.declencheur;
+    if (updates.actionSiVrai != null) payload.actionSiVrai = updates.actionSiVrai;
+    if (updates.actionSiFaux != null) payload.actionSiFaux = updates.actionSiFaux;
     const res = await fetch(`${this.baseUrl}/api/workflow-etapes/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: buildHeaders(),
@@ -1612,6 +1617,8 @@ class LaravelApiService {
       const text = await res.text();
       throw new Error(`API update workflow: ${res.status} - ${text}`);
     }
+    const json = await res.json();
+    return parseWorkflowEtapeFromApi(json.data);
   }
 
   async addWorkflowResponse(id: string, body: { message: string; decision?: string; auteurId?: string; auteurNom?: string }): Promise<void> {
@@ -2194,6 +2201,8 @@ const ROLES_NORM: Record<string, string> = {
   SECRETAIRE: 'SECRETAIRE',
   DIRECTEUR_GENERAL: 'DIRECTEUR_GENERAL',
   DIRECTEUR: 'DIRECTEUR',
+  CHEF_DIVISION: 'CHEF_DIVISION',
+  CHEF_BUREAU: 'CHEF_BUREAU',
   CHEF_SERVICE: 'CHEF_SERVICE',
   AGENT: 'AGENT',
 };
@@ -2214,6 +2223,7 @@ function parseUtilisateurFromApi(raw: Record<string, unknown>): Utilisateur {
     service: u.service != null ? String(u.service) : undefined,
     entiteId: entiteId != null ? String(entiteId) : undefined,
     estSecrétaireDG: Boolean(u.estSecrétaireDG ?? u.est_secretaire_dg ?? false),
+    photoUrl: u.photoUrl != null ? String(u.photoUrl) : u.photo_url != null ? String(u.photo_url) : undefined,
     actif: Boolean(u.actif),
     dateCreation: new Date(),
     dateModification: new Date(),

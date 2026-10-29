@@ -1,3 +1,7 @@
+import CourrierDrawer from '../components/courriers/CourrierDrawer';
+import { markCourrierRead, COURRIER_READ_EVENT } from '../services/courrierReadService';
+import CourrierSummary, { CourrierCorrespondents } from '../components/courriers/CourrierSummary';
+import { courrierReferences, courrierSearchReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import ReactDOM from 'react-dom';
@@ -15,7 +19,7 @@ import { directionService } from '../services/directionService';
 import { procedureService } from '../services/procedureService';
 import { formulaireCourrierService } from '../services/formulaireCourrierService';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEnvelope, faEnvelopeOpen, faSync, faEye, faEdit, faTrash, faChevronLeft, faChevronRight, faFile, faFilePdf, faFileAlt, faPaperclip, faFolder, faFolderOpen, faFileWord, faFileExcel, faFileImage, faFileArchive, faFileCode, faPlus, faChevronDown, faChevronRight as faChevronRightIcon, faTimes, faUpload, faPrint, faDownload, faCopy, faPaste, faCheckSquare, faSquare, faSort, faSortUp, faSortDown, faSortAmountDown, faUserCheck, faBuilding, faUsers, faCalendar, faClock, faInfoCircle, faSearch, faExclamationTriangle, faCheckCircle, faTasks, faUser, faUserTie, faFilter, faAt, faPhone, faLink, faTag, faMapMarkerAlt, faGlobe, faEllipsisV, faLayerGroup, faFileImport, faFileExport, faClipboardCheck, faBars, faSpinner, faMagnifyingGlassPlus, faMagnifyingGlassMinus, faRotateRight, faRotateLeft, faExpand, faArrowRight, faDatabase, faHardDrive, faBell, faHashtag, faArrowDown, faArrowUp, faCheck, faBook, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
+import { faExternalLinkAlt, faEnvelope, faEnvelopeOpen, faSync, faEye, faEdit, faTrash, faChevronLeft, faChevronRight, faFile, faFilePdf, faFileAlt, faPaperclip, faFolder, faFolderOpen, faFileWord, faFileExcel, faFileImage, faFileArchive, faFileCode, faPlus, faChevronDown, faChevronRight as faChevronRightIcon, faTimes, faUpload, faPrint, faDownload, faCopy, faPaste, faCheckSquare, faSquare, faSort, faSortUp, faSortDown, faSortAmountDown, faUserCheck, faBuilding, faUsers, faCalendar, faClock, faInfoCircle, faSearch, faExclamationTriangle, faCheckCircle, faTasks, faUser, faUserTie, faFilter, faAt, faPhone, faLink, faTag, faMapMarkerAlt, faGlobe, faEllipsisV, faLayerGroup, faFileImport, faFileExport, faClipboardCheck, faBars, faSpinner, faMagnifyingGlassPlus, faMagnifyingGlassMinus, faRotateRight, faRotateLeft, faExpand, faArrowRight, faDatabase, faHardDrive, faBell, faHashtag, faArrowDown, faArrowUp, faCheck, faBook, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
 import WordEditor from '../components/WordEditor';
 import ExcelEditor from '../components/ExcelEditor';
 import CustomDialog, { DialogOptions } from '../components/CustomDialog';
@@ -221,12 +225,12 @@ const ListeCourriers: React.FC = () => {
   const auth = useAuth();
   const { user, hasPermission } = auth;
   const fallbackUid = user?.id ?? undefined;
-  
+
   // Debug pour vérifier que hasPermission est accessible (limité)
   if (process.env.NODE_ENV === 'development') {
     // console.log('🔐 [DEBUG] hasPermission disponible:', typeof hasPermission, hasPermission ? 'OK' : 'KO');
   }
-  
+
   // Fonction de sécurité pour vérifier les permissions
   const checkPermission = (permission: Permission): boolean => {
     if (!hasPermission) {
@@ -235,11 +239,11 @@ const ListeCourriers: React.FC = () => {
     }
     return hasPermission(permission);
   };
-  
+
   // Fonction pour détecter si l'expéditeur est une organisation interne
   const isInternalOrganization = (expediteur?: string): boolean => {
     if (!expediteur) return false;
-    
+
     // Liste des organisations internes connues
     const internalOrganizations = [
       'Direction Générale',
@@ -256,26 +260,26 @@ const ListeCourriers: React.FC = () => {
       'Bureau',
       'Cellule'
     ];
-    
+
     const expediteurLower = expediteur.toLowerCase();
-    
+
     // Vérifier si l'expéditeur contient des termes d'organisation interne
-    const hasInternalKeywords = internalOrganizations.some(org => 
+    const hasInternalKeywords = internalOrganizations.some(org =>
       expediteurLower.includes(org.toLowerCase())
     );
-    
+
     // Vérifier si ce n'est pas un email ou une source externe évidente
-    const isExternalSource = expediteurLower.includes('@') || 
+    const isExternalSource = expediteurLower.includes('@') ||
                            expediteurLower.includes('externe') ||
                            expediteurLower.includes('email') ||
                            expediteurLower.includes('gmail') ||
                            expediteurLower.includes('yahoo') ||
                            expediteurLower.includes('outlook') ||
                            expediteurLower.includes('hotmail');
-    
+
     return hasInternalKeywords && !isExternalSource;
   };
-  
+
   // Fonction pour créer un fichier d'accusé de réception automatiquement
   const createAccuseReceptionFile = async (courrier: Courrier): Promise<void> => {
     try {
@@ -323,15 +327,15 @@ const ListeCourriers: React.FC = () => {
         undefined,
         true // estAccuseReception
       );
-      
+
       console.log('[DEBUG] Fichier d\'accusé de réception créé avec succès');
     } catch (error) {
       console.error('[DEBUG] Erreur lors de la création du fichier d\'accusé:', error);
       throw error;
     }
   };
-  
-  
+
+
   // Fonctions pour gérer le dialog
   const showAlert = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', title?: string) => {
     setDialog({
@@ -345,10 +349,21 @@ const ListeCourriers: React.FC = () => {
       onClose: () => {}
     });
   };
-  
+
   const [courriers, setCourriers] = useState<Courrier[]>([]);
   const [allCourriers, setAllCourriers] = useState<Courrier[]>([]);
-  const [loadingCourriers, setLoadingCourriers] = useState(false);
+  useEffect(() => {
+    const receive = (event: Event) => {
+      const receipt = (event as CustomEvent<{id:string;userId:string;readAt:string}>).detail;
+      if (receipt.userId !== user?.id) return;
+      const update = (items: Courrier[]) => items.map(item => item.id === receipt.id ? {...item,isRead:true,readAt:receipt.readAt} : item);
+      setAllCourriers(update); setCourriers(update);
+    };
+    window.addEventListener(COURRIER_READ_EVENT, receive);
+    return () => window.removeEventListener(COURRIER_READ_EVENT, receive);
+  }, [user?.id]);
+
+  const [loadingCourriers, setLoadingCourriers] = useState(true);
   const [loadingMoreCourriers, setLoadingMoreCourriers] = useState(false);
   const [loadingOperations, setLoadingOperations] = useState<{
     insert: boolean;
@@ -448,14 +463,18 @@ const ListeCourriers: React.FC = () => {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [copiedItems, setCopiedItems] = useState<CategorieFichier[]>([]);
   const [draggedItem, setDraggedItem] = useState<CategorieFichier | null>(null);
-  const [itemsPerPage] = useState(10);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (searchOpen) searchInputRef.current?.focus(); }, [searchOpen]);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
   const [formConfig, setFormConfig] = useState(formulaireCourrierService.getConfig());
   const isFormConfigured = useMemo(() => formulaireCourrierService.isFormulaireConfigured(formConfig), [formConfig]);
   const [filters, setFilters] = useState({
     statut: '',
     type: '',
     sens: '',
-    search: '',
+    search: searchParams.get('q') || '',
     priorite: '',
     direction: '',
     service: '',
@@ -487,14 +506,16 @@ const ListeCourriers: React.FC = () => {
   useEffect(() => {
     const urlSens = searchParams.get('sens');
     const urlType = searchParams.get('type');
-    if (urlSens || urlType) {
+    const query = searchParams.get('q');
+    if (urlSens || urlType || query !== null) {
       setFilters(prev => ({
         ...prev,
+        search: query ?? prev.search,
         sens: urlSens || prev.sens,
         type: urlType || prev.type
       }));
     }
-  }, []); // Seulement au montage
+  }, [searchParams.get('q')]); // Recherche globale synchronisée
 
   // Mettre à jour l'URL lorsque les filtres sens ou type changent
   useEffect(() => {
@@ -531,11 +552,13 @@ const ListeCourriers: React.FC = () => {
     } catch { /* ignore */ }
   }, [folderViewMode]);
 
+  const [rowDetails, setRowDetails] = useState<Set<string>>(new Set());
+
   // État pour le mode d'affichage des statistiques
   const [statsView, setStatsView] = useState<'cards' | 'charts' | 'none'>(() => {
     try {
       const saved = localStorage.getItem('listecourriers_stats_view');
-      if (saved === 'cards' || saved === 'charts' || saved === 'none') return saved;
+      if (saved === 'cards' || saved === 'charts') return saved;
     } catch { /* ignore */ }
     return 'charts'; // Par défaut: graphiques
   });
@@ -546,19 +569,23 @@ const ListeCourriers: React.FC = () => {
   }, [statsView]);
 
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
+  const initializedFolderExpansion = useRef<{userId?: string; ids: Set<string>}>({ids:new Set()});
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
   const [showBulkActionsModal, setShowBulkActionsModal] = useState(false);
   const [bulkActionType, setBulkActionType] = useState<'move' | 'rename' | null>(null);
   const [bulkMoveTargetFolderId, setBulkMoveTargetFolderId] = useState<string | null>(null);
   const [bulkRenamePrefix, setBulkRenamePrefix] = useState('');
   const [bulkRenameSuffix, setBulkRenameSuffix] = useState('');
-  
+
   // États pour la navigation hiérarchique des filtres d'entités
   const [hierarchicalLevel, setHierarchicalLevel] = useState<0 | 1 | 2 | 3 | 4>(0); // 0: direction, 1: division, 2: service, 3: sous-service, 4: bureau
   const [selectedParentEntity, setSelectedParentEntity] = useState<string | null>(null);
   const [hierarchicalPath, setHierarchicalPath] = useState<Array<{ id: string; nom: string; type: TypeEntiteOrganisationnelle }>>([]);
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [folderModalName, setFolderModalName] = useState('');
+  const [folderSaving, setFolderSaving] = useState(false);
+  const folderSavingRef = useRef(false);
+  const [folderError, setFolderError] = useState('');
   const [folderModalParentId, setFolderModalParentId] = useState<string | undefined>(undefined);
   const [folderEditingId, setFolderEditingId] = useState<string | null>(null);
   const [folderInlineEditId, setFolderInlineEditId] = useState<string | null>(null);
@@ -625,17 +652,17 @@ const ListeCourriers: React.FC = () => {
 
   // Chargement progressif avec bouton "voir plus"
   const [visibleCount, setVisibleCount] = useState(itemsPerPage);
-  
+
   // Chargement progressif pour les courriers non classés
   const [uncategorizedVisibleCount, setUncategorizedVisibleCount] = useState(itemsPerPage);
   const [loadingMore, setLoadingMore] = useState(false);
-  
+
   // Pagination par catégorie en mode arborescence (évite de rendre 500+ lignes d'un coup)
   const folderItemsPerPage = 10;
   const [folderVisibleLimits, setFolderVisibleLimits] = useState<Map<string, number>>(new Map());
   const [rootVisibleLimit, setRootVisibleLimit] = useState<number>(folderItemsPerPage);
   const [loadingFolderMore, setLoadingFolderMore] = useState<Set<string>>(new Set());
-  
+
   // Chargement progressif des dossiers en mode arborescence
   const [allFolders, setAllFolders] = useState<CategorieCourrier[]>([]);
   const [visibleFolders, setVisibleFolders] = useState<CategorieCourrier[]>([]);
@@ -648,14 +675,14 @@ const ListeCourriers: React.FC = () => {
     setUncategorizedVisibleCount(itemsPerPage);
     setFolderVisibleLimits(new Map());
     setRootVisibleLimit(folderItemsPerPage);
-    
+
     // Réinitialiser aussi les dossiers visibles
     if (allFolders.length > 0) {
       const firstBatch = allFolders.slice(0, foldersBatchSize);
       setVisibleFolders(firstBatch);
     }
   }, [filters, itemsPerPage]);
-  
+
   // Réinitialiser les dossiers visibles quand tous les dossiers changent
   useEffect(() => {
     if (allFolders.length > 0) {
@@ -667,19 +694,19 @@ const ListeCourriers: React.FC = () => {
   // Charger plus de dossiers
   const loadMoreFolders = async () => {
     if (loadingMoreFolders || visibleFolders.length >= allFolders.length) return;
-    
+
     setLoadingMoreFolders(true);
-    
+
     // Simuler un délai pour montrer l'animation de chargement
     await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     const currentLength = visibleFolders.length;
     const nextBatch = allFolders.slice(currentLength, currentLength + foldersBatchSize);
-    
+
     setVisibleFolders(prev => [...prev, ...nextBatch]);
     setLoadingMoreFolders(false);
   };
-  
+
   const handleLoadMore = () => {
     setLoadingMore(true);
     // Simuler un délai pour afficher le skeleton
@@ -987,7 +1014,7 @@ const ListeCourriers: React.FC = () => {
         return String(priorite);
     }
   };
-  
+
   // États pour les modals
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [selectedCourrierForResume, setSelectedCourrierForResume] = useState<Courrier | null>(null);
@@ -1043,19 +1070,19 @@ const ListeCourriers: React.FC = () => {
   const adaptColumnsToFilters = useCallback(() => {
     const currentSens = registreConfig.filterSens;
     const currentType = registreConfig.filterType;
-    
+
     // Déterminer le sens et le type à utiliser pour récupérer les champs du formulaire
     const sens = currentSens && currentSens !== 'ALL' ? currentSens as SensCourrier : SensCourrier.ENTRANT;
     const type = currentType && currentType !== 'ALL' ? currentType as TypeCourrier : TypeCourrier.EXTERNE;
-    
+
     // Récupérer les champs configurés dans le formulaire
     const displayFields = formulaireCourrierService.getDisplayFields(sens, type);
-    
+
     // Construire les colonnes à partir des champs du formulaire en préservant l'état de visibilité
     const existingColumnsMap = new Map(registreConfig.columns.map(col => [col.key, col]));
-    
+
     const newColumns: Array<{ key: string; label: string; width: number; visible: boolean }> = [];
-    
+
     // Ajouter uniquement les champs du formulaire configuré (colonnes dynamiques)
     displayFields.forEach(field => {
       const existingCol = existingColumnsMap.get(field.name);
@@ -1066,7 +1093,7 @@ const ListeCourriers: React.FC = () => {
         visible: existingCol?.visible ?? true,
       });
     });
-    
+
     setRegistreConfig(prev => {
       const unchanged =
         prev.columns.length === newColumns.length &&
@@ -1170,7 +1197,7 @@ const ListeCourriers: React.FC = () => {
   const printViewRef = useRef<HTMLDivElement>(null);
   const courrierListRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  
+
   // Fonction pour scroller vers le haut de la liste des courriers
   const scrollToTop = () => {
     setTimeout(() => {
@@ -1199,10 +1226,10 @@ const ListeCourriers: React.FC = () => {
   // Résoudre le sens (fallback pour anciens courriers sans sens)
   function getCourrierSens(courrier: Courrier) {
     if (courrier.sens) return courrier.sens;
-    
+
     const expediteur = normalizeText(courrier.expediteur);
     const destinataire = normalizeText(courrier.destinataire);
-    
+
     // Pour les courriers externes
     if (courrier.type === TypeCourrier.EXTERNE) {
       // Si l'expéditeur est externe et le destinataire est interne -> Entrant
@@ -1214,7 +1241,7 @@ const ListeCourriers: React.FC = () => {
         return SensCourrier.SORTANT;
       }
     }
-    
+
     // Pour les courriers internes
     if (courrier.type === TypeCourrier.INTERNE) {
       // Si l'expéditeur est la Direction Générale -> Sortant (la DG envoie)
@@ -1233,7 +1260,7 @@ const ListeCourriers: React.FC = () => {
         return SensCourrier.ENTRANT;
       }
     }
-    
+
     // Fallback par défaut
     return SensCourrier.ENTRANT;
   }
@@ -1247,7 +1274,7 @@ const ListeCourriers: React.FC = () => {
     const total = sourceCourriers.length;
     // Le nombre après filtres (pour cohérence avec la liste affichée)
     const filtered = filteredCourriers.length;
-    
+
     // Détecter si des filtres sont actifs – si oui, utiliser filteredCourriers pour
     // que les stats (Entrants, Sortants, Urgents, etc.) correspondent à la liste visible
     const hasActiveFilters =
@@ -1256,13 +1283,13 @@ const ListeCourriers: React.FC = () => {
       filters.sousService !== '' || filters.dateDebut !== '' || filters.dateFin !== '' ||
       debouncedSearch !== '' || filters.categorie !== '' || filters.mesAssignations ||
       filters.nonClassifies;
-    
+
     // Utiliser filteredCourriers si des filtres sont actifs ET qu'ils ont réduit la liste,
     // sinon utiliser sourceCourriers (tous les courriers)
     const statsCourriers = hasActiveFilters && filteredCourriers.length > 0
       ? filteredCourriers
       : sourceCourriers;
-    
+
     const byStatut = Object.values(StatutCourrier).reduce((acc, statut) => {
       // Pour "Traités", exclure les courriers archivés (ils ne doivent pas figurer dans les stats traités)
       if (statut === StatutCourrier.TRAITE) {
@@ -1334,7 +1361,7 @@ const ListeCourriers: React.FC = () => {
       }).filter((f): f is string => f != null)
     ).size;
     const emptyFolders = totalFolders - foldersWithCourriers;
-    
+
     return {
       total: totalFolders,
       root: rootFolders,
@@ -1376,6 +1403,7 @@ const ListeCourriers: React.FC = () => {
   // Charger les workflows quand le modal de prévisualisation s'ouvre
   useEffect(() => {
     if (showResumeModal && selectedCourrierForResume) {
+      if (user?.id && !selectedCourrierForResume.isRead) void markCourrierRead(selectedCourrierForResume.id, user.id).catch(error => console.warn('Lecture non enregistrée', error));
       const workflows = courrierService.getWorkflowsByCourrier(selectedCourrierForResume.id);
       const sorted = workflows.sort((a, b) => {
         if (a.ordre !== undefined && b.ordre !== undefined) {
@@ -1386,7 +1414,7 @@ const ListeCourriers: React.FC = () => {
         return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       });
       setWorkflowsForPreview(sorted);
-      
+
       // Accusé de réception désactivé
       // if (shouldTriggerAccuseReception(selectedCourrierForResume)) {
       //   handleAccuseReceptionNotification(selectedCourrierForResume);
@@ -1455,7 +1483,7 @@ const ListeCourriers: React.FC = () => {
   // Charger les counts de fichiers en arrière-plan après le chargement des courriers
   useEffect(() => {
     if (courriers.length === 0 || !laravelApiService.isConfigured()) return;
-    
+
     // Charger les counts en arrière-plan (ne pas bloquer l'UI)
     const loadCounts = async () => {
       try {
@@ -1467,7 +1495,7 @@ const ListeCourriers: React.FC = () => {
         console.warn('Impossible de charger les counts de fichiers:', e);
       }
     };
-    
+
     loadCounts();
   }, [courriers]);
 
@@ -1489,7 +1517,7 @@ const ListeCourriers: React.FC = () => {
   // Fonction pour charger les données des catégories
   const loadFolderData = useCallback(async () => {
     if (!user) return;
-    
+
     hasRefetchedWhenEmpty.current = false;
 
     try {
@@ -1504,7 +1532,7 @@ const ListeCourriers: React.FC = () => {
           const filteredFolders = synced.folders.filter(f => !deletedIds.has(f.id));
           setCategorieCourriers(filteredFolders);
           setCategorieCourrierMap(synced.map);
-          
+
           // Mettre à jour le chargement progressif des dossiers
           setAllFolders(filteredFolders);
           const firstBatch = filteredFolders.slice(0, foldersBatchSize);
@@ -1513,7 +1541,7 @@ const ListeCourriers: React.FC = () => {
       );
       setCategorieCourriers(localFolders);
       setCategorieCourrierMap(localMap);
-      
+
       // Initialiser le chargement progressif des dossiers
       setAllFolders(localFolders);
       const firstBatch = localFolders.slice(0, foldersBatchSize);
@@ -1531,17 +1559,17 @@ const ListeCourriers: React.FC = () => {
     void loadFolderData();
   }, [user?.id, folderReloadTrigger]);
 
-  // En mode arborescence : ouvrir uniquement la section "non classés" par défaut (pas toutes les catégories)
+  // Newly loaded folders start open; manual collapses survive background refreshes.
   useEffect(() => {
-    if (folderViewMode === 'arborescence') {
-      setExpandedFolderIds(prev => {
-        if (prev.has(ROOT_FOLDER_KEY)) return prev;
-        const next = new Set(prev);
-        next.add(ROOT_FOLDER_KEY);
-        return next;
-      });
-    }
-  }, [folderViewMode]);
+    const state = initializedFolderExpansion.current;
+    const ownerChanged = state.userId !== user?.id;
+    const known = ownerChanged ? new Set<string>() : state.ids;
+    const ids = [ROOT_FOLDER_KEY, ...courrierFolders.map(folder => String(folder.id))];
+    const added = ids.filter(id => !known.has(id));
+    ids.forEach(id => known.add(id));
+    initializedFolderExpansion.current = { userId:user?.id, ids:known };
+    if (ownerChanged || added.length) setExpandedFolderIds(previous => new Set([...(ownerChanged ? [] : previous), ...added]));
+  }, [user?.id, courrierFolders]);
 
   // Constantes pour la synchronisation
   /** Cooldown entre deux syncs (éviter 429 Too Many Requests). */
@@ -1555,17 +1583,17 @@ const ListeCourriers: React.FC = () => {
     const onVisible = () => {
       const now = Date.now();
       if (now - lastFolderLoadOnVisible.current < MIN_RELOAD_INTERVAL_MS) return;
-      
+
       lastFolderLoadOnVisible.current = now;
       if (!user?.id) return;
-      
+
       // NON BLOQUANT : Utiliser then/catch au lieu de await
       categorieCourrierService.getCategoriesAndMapForUser(user.id, '', (synced) => {
         const deletedIds = categorieCourrierService.loadDeletedIds(user.id);
         const filteredFolders = synced.folders.filter(f => !deletedIds.has(f.id));
         setCategorieCourriers(filteredFolders);
         setCategorieCourrierMap(synced.map);
-        
+
         // Mettre à jour le chargement progressif des dossiers
         setAllFolders(filteredFolders);
         const firstBatch = filteredFolders.slice(0, foldersBatchSize);
@@ -1589,8 +1617,8 @@ const ListeCourriers: React.FC = () => {
   useEffect(() => {
     if (!user?.id || courrierFolders.length > 0) return;
     if (hasRefetchedWhenEmpty.current) return;
-    
-    
+
+
     hasRefetchedWhenEmpty.current = true;
     console.log('[Catégories] Catégories vides avec user connecté → rechargement depuis l\'API (après nettoyage cache)');
     const t = setTimeout(() => {
@@ -1622,7 +1650,7 @@ const ListeCourriers: React.FC = () => {
       const msg = (error?.message && String(error.message)) || '';
       const msgLower = msg.toLowerCase();
       const fullErrorStr = JSON.stringify(error);
-      
+
       // Ignorer les erreurs 404 (catégories déjà supprimées)
       if (error.message?.includes('404') || error.message?.includes('Catégorie non trouvée')) {
         console.log('Ignorer erreur 404 - catégorie déjà supprimée');
@@ -1716,29 +1744,16 @@ const ListeCourriers: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [courrierFolderMap, user?.id]);
 
-  // Chargement progressif : utiliser visibleCount pour déterminer les courriers à afficher
-  // Les stats sont calculées sur filteredCourriers (tous les courriers filtrés)
-  // L'affichage n'utilise que currentCourriers (courriers visibles progressivement)
-  const currentCourriers = filteredCourriers.slice(0, visibleCount);
-  const hasMoreCourriers = visibleCount < filteredCourriers.length && filteredCourriers.length > itemsPerPage;
-
-  // Lazy loader : charger plus de courriers automatiquement au scroll
-  useEffect(() => {
-    const sentinel = loadMoreSentinelRef.current;
-    if (!sentinel || !hasMoreCourriers || loadingMore) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          handleLoadMore();
-        }
-      },
-      { rootMargin: '200px' }
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMoreCourriers, loadingMore, handleLoadMore]);
+  const pageCount = Math.max(1, Math.ceil(filteredCourriers.length / itemsPerPage));
+  const activePage = Math.min(currentPage, pageCount);
+  const pageStart = (activePage - 1) * itemsPerPage;
+  const currentCourriers = filteredCourriers.slice(pageStart, pageStart + itemsPerPage);
+  useEffect(() => { setCurrentPage(1); }, [filters, debouncedSearch, itemsPerPage, folderViewMode, groupBy, sortOrder]);
+  useEffect(() => { if (currentPage > pageCount) setCurrentPage(pageCount); }, [currentPage, pageCount]);
+  const changePage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(pageCount, page)));
+    tableRef.current?.scrollIntoView({ block: 'start', behavior: 'auto' });
+  };
 
   // Gestion de la sélection (sur tous les courriers filtrés, pas seulement la page courante)
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1759,7 +1774,7 @@ const ListeCourriers: React.FC = () => {
       avantSelection: Array.from(selectedCourriers),
       evenement: e?.type
     });
-    
+
     setSelectedCourriers(prev => {
       const next = new Set(prev);
       if (next.has(courrierId)) {
@@ -1901,6 +1916,7 @@ const ListeCourriers: React.FC = () => {
   const activeGroupLabel = groupByOptions.find(option => option.value === groupBy)?.label ?? 'Aucun regroupement';
 
   const openFolderModal = (parentId?: string, folderToEdit?: CategorieCourrier) => {
+    setFolderError('');
     if (folderToEdit) {
       setFolderEditingId(folderToEdit.id);
       setFolderModalName(folderToEdit.name);
@@ -1914,102 +1930,47 @@ const ListeCourriers: React.FC = () => {
   };
 
   const closeFolderModal = () => {
+    if (folderSavingRef.current) return;
+    setFolderError('');
     setShowFolderModal(false);
     setFolderModalName('');
     setFolderModalParentId(undefined);
     setFolderEditingId(null);
   };
 
+  const folderPath = (id?: string): string => {
+    const names: string[] = []; const seen = new Set<string>();
+    let current = id ? courrierFolders.find(folder => folder.id === id) : undefined;
+    while (current && !seen.has(current.id)) { seen.add(current.id); names.unshift(current.name); current = current.parentId ? courrierFolders.find(folder => folder.id === current?.parentId) : undefined; }
+    return names.length ? names.join(' / ') : 'Mes dossiers';
+  };
+  const forbiddenFolderParents = new Set<string>();
+  if (folderEditingId) {
+    forbiddenFolderParents.add(folderEditingId);
+    let previousSize = -1;
+    while (previousSize !== forbiddenFolderParents.size) { previousSize = forbiddenFolderParents.size; courrierFolders.forEach(folder => {if(folder.parentId && forbiddenFolderParents.has(folder.parentId)) forbiddenFolderParents.add(folder.id);}); }
+  }
   const handleSaveFolder = async () => {
-    const trimmed = folderModalName.trim();
-    if (!trimmed) return;
-
-    const now = new Date().toISOString();
-    if (folderEditingId) {
-      let previous: CategorieCourrier | undefined;
-      setCategorieCourriers(prev => {
-        previous = prev.find(f => f.id === folderEditingId);
-        return prev.map(folder =>
-          folder.id === folderEditingId
-            ? { ...folder, name: trimmed, parentId: folderModalParentId, updatedAt: now }
-            : folder
-        );
-      });
-
-      if (user?.id) {
-        try {
-          const saved = await categorieCourrierService.saveCategory(
-            {
-              id: folderEditingId,
-              name: trimmed,
-              parentId: folderModalParentId,
-              createdAt: previous?.createdAt ?? now,
-              updatedAt: now,
-              userId: user.id,
-            },
-            user.id
-          );
-          setCategorieCourriers(prev =>
-            prev.map(folder =>
-              folder.id === folderEditingId ? saved : folder
-            )
-          );
-          
-          // Mettre à jour les dossiers visibles si nécessaire
-          setVisibleFolders(prev =>
-            prev.map(folder =>
-              folder.id === folderEditingId ? saved : folder
-            )
-          );
-          showAlert('Catégorie mise à jour', 'success');
-        } catch (error) {
-          console.error('Synchronisation API catégorie (update) échouée:', error);
-          // Revenir à l'état précédent si la synchro échoue
-          setCategorieCourriers(prev =>
-            prev.map(folder =>
-              folder.id === folderEditingId ? { ...folder, ...(previous as CategorieCourrier) } : folder
-            )
-          );
-          showAlert(error instanceof Error ? error.message : 'Erreur lors de la synchronisation', 'error');
-          return;
-        }
-      } else {
-        showAlert('Catégorie mise à jour en local (utilisateur manquant).', 'warning');
-      }
-    } else {
-      const newFolder: CategorieCourrier = {
-        id: '',
-        name: trimmed,
-        parentId: folderModalParentId,
-        createdAt: now,
-        updatedAt: now
-      };
-
-      if (user?.id) {
-        try {
-          const saved = await categorieCourrierService.saveCategory(newFolder, user.id);
-          setCategorieCourriers(prev => [...prev, saved]);
-          
-          // Ajouter aux dossiers visibles si dans le premier batch
-          if (visibleFolders.length < foldersBatchSize) {
-            setVisibleFolders(prev => [...prev, saved]);
-          }
-          showAlert('Catégorie créée', 'success');
-        } catch (error) {
-          console.error('Synchronisation API catégorie (create) échouée:', error);
-          showAlert('Erreur lors de la création de la catégorie', 'error');
-        }
-      } else {
-        setCategorieCourriers(prev => [...prev, newFolder]);
-        
-        // Ajouter aux dossiers visibles si dans le premier batch
-        if (visibleFolders.length < foldersBatchSize) {
-          setVisibleFolders(prev => [...prev, newFolder]);
-        }
-        showAlert('Catégorie créée en local (utilisateur manquant).', 'warning');
-      }
-    }
-    closeFolderModal();
+    if (folderSavingRef.current) return;
+    const name = folderModalName.trim();
+    if (!name) { setFolderError('Saisissez le nom du dossier.'); return; }
+    if (name.length > 150) { setFolderError('Le nom doit contenir au maximum 150 caractères.'); return; }
+    if (folderModalParentId && forbiddenFolderParents.has(folderModalParentId)) { setFolderError('Choisissez un emplacement extérieur à ce dossier.'); return; }
+    if (courrierFolders.some(folder => folder.id !== folderEditingId && (folder.parentId || '') === (folderModalParentId || '') && folder.name.trim().toLocaleLowerCase('fr') === name.toLocaleLowerCase('fr'))) {setFolderError('Un dossier de ce nom existe déjà à cet emplacement.');return;}
+    if (!user?.id) {setFolderError('Reconnectez-vous pour enregistrer le dossier.');return;}
+    folderSavingRef.current = true;setFolderSaving(true);setFolderError('');
+    try {
+      const now = new Date().toISOString();
+      const previous = courrierFolders.find(folder => folder.id === folderEditingId);
+      const saved = await categorieCourrierService.saveCategory({id:folderEditingId || '',name,parentId:folderModalParentId,createdAt:previous?.createdAt || now,updatedAt:now,userId:user.id},user.id);
+      const update = (folders: CategorieCourrier[]) => folders.some(folder => folder.id === saved.id) ? folders.map(folder => folder.id === saved.id ? saved : folder) : [...folders,saved];
+      setCategorieCourriers(update);setAllFolders(update);setVisibleFolders(update);
+      setFolderViewMode('arborescence');setRootVisibleLimit(limit => Math.max(limit,courrierFolders.filter(folder=>!folder.parentId).length+1));
+      setExpandedFolderIds(ids=>new Set([...ids,saved.id,...(folderModalParentId?[folderModalParentId]:[])]));
+      setShowFolderModal(false);setFolderModalName('');setFolderModalParentId(undefined);setFolderEditingId(null);
+      showAlert(folderEditingId ? 'Dossier mis à jour' : 'Dossier créé. Vous pouvez y classer vos courriers.', 'success');
+    } catch(error) {setFolderError(error instanceof Error ? error.message : 'Le dossier n’a pas pu être enregistré. Réessayez.');}
+    finally {folderSavingRef.current=false;setFolderSaving(false);}
   };
 
   // Supprimer une catégorie (avec tous ses enfants)
@@ -2021,26 +1982,26 @@ const ListeCourriers: React.FC = () => {
       return acc;
     };
     const idsToDelete = collectIds(folderId, new Set<string>());
-    
+
     const confirmed = await showConfirm('Supprimer cette catégorie et tous ses sous-catégories ?', 'warning');
     if (!confirmed) return;
 
     try {
-      console.log('[DEBUG] Début suppression catégorie:', { 
-        folderId, 
+      console.log('[DEBUG] Début suppression catégorie:', {
+        folderId,
         idsToDelete: Array.from(idsToDelete),
         currentFoldersCount: courrierFolders.length,
         currentFolderMapKeys: Object.keys(courrierFolderMap)
       });
-      
+
       // Marquer les IDs comme supprimés AVANT l'appel API pour empêcher leur réapparition
       // si la sync API en arrière-plan se résout pendant l'attente
       if (user?.id) categorieCourrierService.markDeleted(user.id, Array.from(idsToDelete));
       // Supprimer dans l'API
       await categorieCourrierService.deleteCategories(Array.from(idsToDelete));
       console.log('[DEBUG] Suppression API réussie');
-      
-      
+
+
       // Ensuite, supprimer localement seulement si l'API a réussi
       console.log('[DEBUG] Début suppression locale');
       setCategorieCourriers(prev => {
@@ -2051,7 +2012,7 @@ const ListeCourriers: React.FC = () => {
         }
         return newFolders;
       });
-      
+
       // Mettre à jour les dossiers visibles
       setVisibleFolders(prev => prev.filter(folder => !idsToDelete.has(folder.id)));
       setAllFolders(prev => prev.filter(folder => !idsToDelete.has(folder.id)));
@@ -2075,7 +2036,7 @@ const ListeCourriers: React.FC = () => {
         }
         return next;
       });
-      
+
       // Nettoyer les états d'expansion et de sélection
       setExpandedFolderIds(prev => {
         const next = new Set(prev);
@@ -2092,7 +2053,7 @@ const ListeCourriers: React.FC = () => {
         idsToDelete.forEach(id => next.delete(id));
         return next;
       });
-      
+
       showAlert('Catégorie supprimée avec succès', 'success');
       console.log('[DEBUG] Suppression catégorie terminée avec succès');
     } catch (error: any) {
@@ -2160,7 +2121,7 @@ const ListeCourriers: React.FC = () => {
         if (user?.id) localStorage.setItem(`courrier_folders_${user.id}`, JSON.stringify(newFolders));
         return newFolders;
       });
-      
+
       // Mettre à jour les dossiers visibles
       setVisibleFolders(prev => prev.filter(folder => !idsToDelete.has(folder.id)));
       setAllFolders(prev => prev.filter(folder => !idsToDelete.has(folder.id)));
@@ -2232,7 +2193,7 @@ const ListeCourriers: React.FC = () => {
       }
       return folder;
     }));
-    
+
     // Mettre à jour les dossiers visibles
     setVisibleFolders(prev => prev.map(folder => {
       if (selectedFolderIds.has(folder.id)) {
@@ -2251,7 +2212,7 @@ const ListeCourriers: React.FC = () => {
     if (user?.id) {
       const foldersToUpdate = courrierFolders.filter(f => selectedFolderIds.has(f.id));
       const savedFolders = await Promise.all(
-        foldersToUpdate.map(folder => 
+        foldersToUpdate.map(folder =>
           categorieCourrierService.saveCategory(
             { ...folder, parentId: targetParentId || undefined, updatedAt: now },
             user.id
@@ -2264,7 +2225,7 @@ const ListeCourriers: React.FC = () => {
           return saved ? saved : folder;
         })
       );
-      
+
       // Mettre à jour les dossiers visibles
       setVisibleFolders(prev =>
         prev.map(folder => {
@@ -2329,7 +2290,7 @@ const ListeCourriers: React.FC = () => {
           return saved ? saved : folder;
         })
       );
-      
+
       // Mettre à jour les dossiers visibles
       setVisibleFolders(prev =>
         prev.map(folder => {
@@ -2403,18 +2364,18 @@ const ListeCourriers: React.FC = () => {
 
     const count = selectedCourriers.size;
     const operationName = `Mise à jour du statut (${count} courrier${count > 1 ? 's' : ''})`;
-    
+
     // Démarrer le preload avec message contextuel
-    setLoadingOperations(prev => ({ 
-      ...prev, 
+    setLoadingOperations(prev => ({
+      ...prev,
       update: true,
       operationName,
       progress: 0,
       completed: false
     }));
-    
+
     try {
-      const promises = Array.from(selectedCourriers).map((id, index) => 
+      const promises = Array.from(selectedCourriers).map((id, index) =>
         courrierService.updateCourrier(id, { statut: courrierBulkStatut as StatutCourrier })
           .then(() => {
             // Mettre à jour la progression
@@ -2424,10 +2385,10 @@ const ListeCourriers: React.FC = () => {
             }));
           })
       );
-      
+
       await Promise.all(promises);
       await loadCourriers();
-      
+
       // Marquer l'opération comme terminée avec succès
       setLoadingOperations(prev => ({
         ...prev,
@@ -2435,10 +2396,10 @@ const ListeCourriers: React.FC = () => {
         completed: true,
         success: true
       }));
-      
+
       // Attendre un peu pour montrer le succès
       await new Promise(resolve => setTimeout(resolve, 800));
-      
+
       setSelectedCourriers(new Set());
       setShowCourrierBulkModal(false);
       setCourrierBulkActionType(null);
@@ -2453,7 +2414,7 @@ const ListeCourriers: React.FC = () => {
         success: false,
         error: error instanceof Error ? error.message : 'Erreur inconnue'
       }));
-      
+
       await new Promise(resolve => setTimeout(resolve, 1500));
       setLoadingOperations(prev => ({ ...prev, update: false }));
       showAlert('Erreur lors de la mise à jour du statut', 'error');
@@ -2465,18 +2426,18 @@ const ListeCourriers: React.FC = () => {
 
     const count = selectedCourriers.size;
     const operationName = `Mise à jour de la priorité (${count} courrier${count > 1 ? 's' : ''})`;
-    
+
     // Démarrer le preload avec message contextuel
-    setLoadingOperations(prev => ({ 
-      ...prev, 
+    setLoadingOperations(prev => ({
+      ...prev,
       update: true,
       operationName,
       progress: 0,
       completed: false
     }));
-    
+
     try {
-      const promises = Array.from(selectedCourriers).map((id, index) => 
+      const promises = Array.from(selectedCourriers).map((id, index) =>
         courrierService.updateCourrier(id, { priorite: courrierBulkPriorite as Priorite })
           .then(() => {
             // Mettre à jour la progression
@@ -2486,10 +2447,10 @@ const ListeCourriers: React.FC = () => {
             }));
           })
       );
-      
+
       await Promise.all(promises);
       await loadCourriers();
-      
+
       // Marquer l'opération comme terminée avec succès
       setLoadingOperations(prev => ({
         ...prev,
@@ -2497,10 +2458,10 @@ const ListeCourriers: React.FC = () => {
         completed: true,
         success: true
       }));
-      
+
       // Attendre un peu pour montrer le succès
       await new Promise(resolve => setTimeout(resolve, 800));
-      
+
       setSelectedCourriers(new Set());
       setShowCourrierBulkModal(false);
       setCourrierBulkActionType(null);
@@ -2515,7 +2476,7 @@ const ListeCourriers: React.FC = () => {
         success: false,
         error: error instanceof Error ? error.message : 'Erreur inconnue'
       }));
-      
+
       await new Promise(resolve => setTimeout(resolve, 1500));
       setLoadingOperations(prev => ({ ...prev, update: false }));
       showAlert('Erreur lors de la mise à jour de la priorité', 'error');
@@ -2672,7 +2633,7 @@ const ListeCourriers: React.FC = () => {
           if (completionCheck.isComplete) {
             realTimeTaskSyncService.notifyTaskCompleted(
               courrier.id,
-              courrier.numero || '',
+              courrierReferences(courrier) || '',
               user.id,
               user.role,
               'Orientation',
@@ -2738,7 +2699,7 @@ const ListeCourriers: React.FC = () => {
               });
             } catch (_) {}
           }
-          
+
           // Vérifier la complétion de la tâche pour le secrétaire (orientation effectuée)
           const completionCheck = taskCompletionService.checkTaskCompletion(user, {
             orientationDone: true
@@ -2754,7 +2715,7 @@ const ListeCourriers: React.FC = () => {
               completionCheck.reason
             );
           }
-          
+
           done++;
         } catch (_) {}
       }
@@ -2813,7 +2774,7 @@ const ListeCourriers: React.FC = () => {
       }
       return next;
     });
-    
+
     // Mettre à jour les dossiers visibles immédiatement
     setVisibleFolders(prev =>
       prev.map(folder =>
@@ -2933,18 +2894,18 @@ const ListeCourriers: React.FC = () => {
   const [courrierBulkPriorite, setCourrierBulkPriorite] = useState<Priorite | ''>('');
   const [courrierBulkOrienterDirectionNom, setCourrierBulkOrienterDirectionNom] = useState<string | null>(null);
   const [bulkOrienterLoading, setBulkOrienterLoading] = useState(false);
-  
+
   // Fonction pour trouver le directeur approprié selon la direction du secrétaire
 const getAppropriateDirector = (user: Utilisateur | null) => {
   if (!user) return null;
-  
-  console.log('Recherche directeur pour utilisateur:', { 
-    role: user.role, 
+
+  console.log('Recherche directeur pour utilisateur:', {
+    role: user.role,
     direction: user.direction,
     nom: user.nom,
     email: user.email
   });
-  
+
   // Si c'est un secrétaire DG, orienter vers le DG
   const isSecretaryDG = Boolean(
     user.role === Role.SECRETAIRE && (
@@ -2955,30 +2916,30 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       (user.email === 'secretaire@example.com' && user.nom === 'Marie Dupont')
     )
   );
-  
+
   console.log('Est secrétaire DG?', isSecretaryDG, 'Direction:', user.direction);
-  
+
   if (isSecretaryDG) {
     const dg = adminService.getDirecteurGeneral();
     console.log('Secrétaire DG oriente vers le DG:', dg ? { nom: dg.nom, role: dg.role } : 'Non trouvé');
     return dg;
   }
-  
+
   // Si c'est un secrétaire de direction, trouver le directeur de sa direction
   if (user.role === Role.SECRETAIRE && user.direction && user.direction !== 'Direction Générale') {
     const users = adminService.getAllUsers();
     console.log('Utilisateurs disponibles:', users.map(u => ({ nom: u.nom, role: u.role, direction: u.direction, actif: u.actif })));
-    
-    const director = users.find(u => 
-      u.role === Role.DIRECTEUR && 
+
+    const director = users.find(u =>
+      u.role === Role.DIRECTEUR &&
       u.direction === user.direction &&
       u.actif
     );
-    
+
     console.log('Secrétaire de direction oriente vers le directeur:', director ? { nom: director.nom, role: director.role, direction: director.direction } : 'Non trouvé');
     return director;
   }
-  
+
   // Pour les autres (super admin), trouver le DG par défaut
   const dg = adminService.getDirecteurGeneral();
   console.log('Autre rôle oriente vers le DG:', dg ? { nom: dg.nom, role: dg.role } : 'Non trouvé');
@@ -3022,7 +2983,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   // Export des catégorie avec leurs courriers (données complètes)
   const exportFoldersStructure = async () => {
     if (!user) return;
-    
+
     try {
       const exportData = {
         version: '2.0',
@@ -3040,6 +3001,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           const courrierData: any = {
             id: c.id,
             numero: c.numero,
+            numeroOrganisationnel: c.numeroOrganisationnel,
+            entiteNumerotationId: c.entiteNumerotationId,
             type: c.type,
             sens: c.sens,
             dateReception: c.dateReception instanceof Date ? c.dateReception.toISOString() : c.dateReception,
@@ -3072,7 +3035,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      
+
       showAlert(`Export réussi : ${exportData.courriers.length} courrier(s) avec ${exportData.folders.length} catégorie(s)`, 'success');
     } catch (error) {
       console.error('Erreur lors de l\'export des catégorie:', error);
@@ -3083,7 +3046,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   // Import des catégorie avec leurs courriers (structure uniquement)
   const importFoldersStructure = async (file: File) => {
     if (!user) return;
-    
+
     setImportingFolders(true);
     try {
       const text = await file.text();
@@ -3100,7 +3063,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       // Vérifier que les IDs de catégories existent dans les courriers
       const existingCourrierIds = new Set(courriers.map(c => c.id));
       const validFolderMap: Record<string, string | null> = {};
-      
+
       for (const [courrierId, folderId] of Object.entries(importData.folderMap)) {
         if (existingCourrierIds.has(courrierId)) {
           validFolderMap[courrierId] = folderId as string | null;
@@ -3132,14 +3095,14 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
       // Sauvegarder les catégories via l'API Laravel
       await categorieCourrierService.saveCategories(validFolders, user.id);
-      
+
       // Sauvegarder le mapping via l'API Laravel
       await categorieCourrierService.saveCategoryMap(user.id, finalFolderMap);
 
       // Mettre à jour l'état (données déjà en API via saveFolders/saveFolderMap ci-dessus)
       setCategorieCourriers(validFolders);
       setCategorieCourrierMap(finalFolderMap);
-      
+
       // Mettre à jour les dossiers pour le chargement progressif
       setAllFolders(validFolders);
       const firstBatch = validFolders.slice(0, foldersBatchSize);
@@ -3163,7 +3126,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   // Import des courriers avec leur structure de catégories (création des courriers)
   const importCourriersWithFolders = async (file: File) => {
     if (!user) return;
-    
+
     setImportingFolders(true);
     try {
       const text = await file.text();
@@ -3286,10 +3249,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
       // 3. Créer le mapping des courriers vers les catégories
       const finalFolderMap: Record<string, string | null> = {};
-      
+
       // Utiliser folderMap si disponible, sinon utiliser folderId dans les courriers
       const folderMapping = importData.folderMap || {};
-      
+
       for (const courrierData of importData.courriers) {
         const newCourrierId = courrierIdMap.get(courrierData.id);
         if (newCourrierId) {
@@ -3317,7 +3280,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       const filteredFolders = reloadedFolders.filter(folder => !deletedIds.has(folder.id));
       setCategorieCourriers(filteredFolders);
       setCategorieCourrierMap(reloadedMap);
-      
+
       // Mettre à jour les dossiers pour le chargement progressif
       setAllFolders(filteredFolders);
       const firstBatch = filteredFolders.slice(0, foldersBatchSize);
@@ -3439,7 +3402,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     try {
       const text = await file.text();
       const lines = parseCSV(text);
-      
+
       if (lines.length < 2) {
         throw new Error('Le fichier CSV doit contenir au moins une ligne d\'en-tête et une ligne de données');
       }
@@ -3681,7 +3644,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       const filteredFolders2 = reloadedFolders2.filter(folder => !deletedIds2.has(folder.id));
       setCategorieCourriers(filteredFolders2);
       setCategorieCourrierMap(reloadedMap2);
-      
+
       // Mettre à jour les dossiers pour le chargement progressif
       setAllFolders(filteredFolders2);
       const firstBatch2 = filteredFolders2.slice(0, foldersBatchSize);
@@ -3735,19 +3698,19 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     setImportingFolders(true);
     try {
       console.log(`Import Excel : ${file.name}`);
-      
+
       // Lire le fichier Excel
       const arrayBuffer = await file.arrayBuffer();
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(arrayBuffer);
-      
+
       if (workbook.worksheets.length === 0) {
         throw new Error('Le fichier Excel ne contient aucune feuille');
       }
-      
+
       // Utiliser la première feuille
       const worksheet = workbook.worksheets[0];
-      
+
       // Lire les en-têtes (première ligne, remplir les trous)
       const headerRow = worksheet.getRow(1);
       const headers: string[] = [];
@@ -3764,7 +3727,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           headers[colNumber - 1] = (v?.toString() || '').trim();
         }
       });
-      
+
       console.log('En-têtes détectés:', headers.filter(Boolean).join(', '));
 
       const getColumnIndexExcel = (names: string | string[], allowStartsWith = false): number => {
@@ -3806,11 +3769,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       // Créer un map des catégories uniques
       const foldersMap = new Map<string, { name: string; parentId?: string }>();
       const folderNameToId = new Map<string, string>();
-      
+
       // 1. Parcourir les données pour collecter les catégories (exclure « Courriers non classés »)
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return; // Skip header
-        
+
         const categorieCell = categorieCol >= 0 ? row.getCell(categorieCol + 1) : null;
         if (categorieCell && categorieCell.value) {
           const folderName = categorieCell.value.toString().trim();
@@ -3819,7 +3782,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           }
         }
       });
-      
+
       // 2. Créer les catégories (API peut renvoyer l'id réel — utiliser folder.id après save)
       const createdFolders: CategorieCourrier[] = [];
       for (const [folderName, folderData] of foldersMap) {
@@ -3840,19 +3803,19 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           console.error(`Erreur lors de la création de la catégorie ${folderName}:`, error);
         }
       }
-      
+
       // 3. Créer les courriers
       const existingCourrierNumeros = new Set(courriers.map(c => c.numero));
       const createdCourriers: Courrier[] = [];
       const finalFolderMap: Record<string, string | null> = {};
-      
+
       // Collecter toutes les lignes de données d'abord
       const dataRows: Array<{ row: ExcelJS.Row; rowNumber: number }> = [];
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return; // Skip header
         dataRows.push({ row, rowNumber });
       });
-      
+
       const getCellValue = (row: ExcelJS.Row, colIndex: number): string => {
         if (colIndex < 0) return '';
         const cell = row.getCell(colIndex + 1);
@@ -3868,7 +3831,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         }
         return String(v).replace(/\u00A0/g, ' ').trim();
       };
-      
+
       let excelSkippedCount = 0;
       let excelEmptyRowsCount = 0;
       let firstSkipReason: string | null = null;
@@ -4022,7 +3985,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       }
 
       console.log(`${createdCourriers.length} courrier(s) créé(s), ${excelSkippedCount} ligne(s) ignorée(s)${excelEmptyRowsCount > 0 ? `, ${excelEmptyRowsCount} ligne(s) vide(s)` : ''}`);
-      
+
       // 4. Sauvegarder le mapping des catégories
       if (Object.keys(finalFolderMap).length > 0) {
         const existingMap = await categorieCourrierService.getFolderMap(user.id);
@@ -4030,7 +3993,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         await categorieCourrierService.saveCategoryMap(user.id, mergedMap);
         console.log(`Mapping de ${Object.keys(finalFolderMap).length} courrier(s) sauvegardé`);
       }
-      
+
       // 5. Recharger les données
       await loadCourriers();
       const { folders: reloadedFolders3, map: reloadedMap3 } = await categorieCourrierService.getCategoriesAndMapForUser(user.id);
@@ -4038,13 +4001,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       const filteredFolders3 = reloadedFolders3.filter(folder => !deletedIds3.has(folder.id));
       setCategorieCourriers(filteredFolders3);
       setCategorieCourrierMap(reloadedMap3);
-      
+
       // Mettre à jour les dossiers pour le chargement progressif
       setAllFolders(filteredFolders3);
       const firstBatch3 = filteredFolders3.slice(0, foldersBatchSize);
       setVisibleFolders(firstBatch3);
       categorieCourrierService.markLastSaveTime();
-      
+
       let excelMsg = excelSkippedCount > 0 || excelEmptyRowsCount > 0
         ? `Import Excel : ${createdCourriers.length} courrier(s) créé(s), ${createdFolders.length} catégorie(s)${excelSkippedCount > 0 ? `, ${excelSkippedCount} ligne(s) ignorée(s)` : ''}${excelEmptyRowsCount > 0 ? `, ${excelEmptyRowsCount} ligne(s) vide(s)` : ''}`
         : `Import Excel réussi : ${createdCourriers.length} courrier(s) créé(s) et ${createdFolders.length} catégorie(s) avec leur organisation`;
@@ -4106,7 +4069,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     e.target.value = '';
     setShowImportDropdown(false);
   };
-  
+
   // Fonction pour déclencher l'import selon le format (clic différé pour que le dialog fichier s'ouvre après fermeture du dropdown)
   const triggerImport = (format: 'csv' | 'json' | 'excel') => {
     if (!isFormConfigured) {
@@ -4283,25 +4246,25 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         setStorageInfo(null);
         return;
       }
-      
+
       console.log('Chargement du stockage...');
-      
+
       // Récupérer les courriers accessibles
       const accessibleCourriers = await courrierService.getAccessibleCourriers(user?.id || '', user || undefined);
       console.log('Courriers accessibles pour stockage:', accessibleCourriers.length);
-      
+
       // Calculer les stats avec répartition par type
       let totalSize = 0;
       let totalFiles = 0;
       const extensionMap = new Map<string, { count: number; size: number }>();
-      
+
       for (const courrier of accessibleCourriers) {
         try {
           const fichiers = await categorieFichierService.getCategoriesFichiersByCourrier(courrier.id);
           for (const file of fichiers) {
             totalSize += file.taille || 0;
             totalFiles++;
-            
+
             const extension = file.nom?.split('.').pop()?.toLowerCase() || 'autre';
             if (!extensionMap.has(extension)) {
               extensionMap.set(extension, { count: 0, size: 0 });
@@ -4314,7 +4277,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           // Ignorer les erreurs
         }
       }
-      
+
       const quota = 1073741824; // 1GB
       const usagePercent = quota > 0 ? (totalSize / quota) * 100 : 0;
 
@@ -4337,7 +4300,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         totalFiles,
         items,
       });
-      
+
       console.log('Stockage chargé avec répartition:', { totalSize, totalFiles, usagePercent, typesCount: items.length });
     } catch (error) {
       console.error('Erreur stockage:', error);
@@ -4397,10 +4360,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
       // Lire directement le store après le fetch (évite un 2ème appel API dans getAccessibleCourriers)
       const allCourriersData = await courrierService.getAccessibleCourriers(user.id, user);
-      
+
       // Stocker tous les courriers dans allCourriers dès le début pour les stats
       setAllCourriers(allCourriersData);
-      
+
       // Charger uniquement le premier lot de 50 courriers
       const BATCH_SIZE = 50;
       const firstBatch = allCourriersData.slice(0, BATCH_SIZE);
@@ -4460,17 +4423,17 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
   const loadMoreCourriers = async () => {
     if (loadingMoreCourriers || courriers.length >= allCourriers.length) return;
-    
+
     setLoadingMoreCourriers(true);
-    
+
     try {
       // Simuler un délai pour montrer l'animation skeleton
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       const BATCH_SIZE = 50;
       const currentLength = courriers.length;
       const nextBatch = allCourriers.slice(currentLength, currentLength + BATCH_SIZE);
-      
+
       setCourriers(prev => [...prev, ...nextBatch]);
     } catch (error) {
       console.error('Erreur chargement plus de courriers:', error);
@@ -4488,9 +4451,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       'A2': { width: 420, height: 594 },
       'A1': { width: 594, height: 841 }
     };
-    
+
     const dims = formats[format] || formats['A4'];
-    return orientation === 'landscape' 
+    return orientation === 'landscape'
       ? { width: dims.height, height: dims.width }
       : dims;
   };
@@ -4499,11 +4462,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   const exportPDF = async (settings?: typeof exportSettings) => {
     const params = settings || exportSettings;
     setExporting(true);
-    
+
     try {
       // Utiliser la nouvelle approche directe
       const pdf = generatePDFDirect(params);
-      
+
       // Télécharger le PDF
       pdf.save(`courriers_${new Date().toISOString().split('T')[0]}.pdf`);
       setShowExportSettings(false);
@@ -4523,10 +4486,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     const dynamicFields = unifiedFields.filter(field => field.name && !CORE_FIELDS.includes(field.name));
 
     // Déterminer le format
-    const dims = params.format === 'auto' 
+    const dims = params.format === 'auto'
       ? { width: 210, height: 297 } // A4 par défaut
       : getFormatDimensions(params.format, params.orientation);
-    
+
     // Créer le PDF
     const pdf = new jsPDF({
       orientation: params.orientation,
@@ -4540,15 +4503,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     const marginRight = Math.max(5, Math.min(params.margins.right || 10, pageWidth / 4));
     const marginTop = Math.max(5, Math.min(params.margins.top || 10, pageHeight / 4));
     const marginBottom = Math.max(5, Math.min(params.margins.bottom || 10, pageHeight / 4));
-    
+
     const contentWidth = pageWidth - marginLeft - marginRight;
     const contentHeight = pageHeight - marginTop - marginBottom;
-    
+
     let currentY = marginTop;
     const lineHeight = 6;
     const cellPadding = 3;
     const headerHeight = 12;
-    
+
     // Fonction pour ajouter une nouvelle page si nécessaire
     const checkNewPage = (requiredHeight: number) => {
       if (currentY + requiredHeight > pageHeight - marginBottom) {
@@ -4562,16 +4525,16 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     // Fonction pour obtenir la couleur du badge
     const getBadgeColor = (type: string, value: string) => {
       if (type === 'statut') {
-        return value === StatutCourrier.TRAITE ? '#10b981' : 
-               value === StatutCourrier.EN_TRAITEMENT ? '#3b82f6' : 
+        return value === StatutCourrier.TRAITE ? '#10b981' :
+               value === StatutCourrier.EN_TRAITEMENT ? '#3b82f6' :
                value === StatutCourrier.ASSIGNE ? '#8b5cf6' :
                value === StatutCourrier.ORIENTE_DG ? '#f97316' :
                value === StatutCourrier.ORIENTE_DIRECTEUR ? '#ea580c' :
-               value === StatutCourrier.EN_ATTENTE_DG ? '#f59e0b' : 
+               value === StatutCourrier.EN_ATTENTE_DG ? '#f59e0b' :
                value === StatutCourrier.ENREGISTRE ? '#6b7280' : '#ef4444';
       } else if (type === 'priorite') {
-        return value === Priorite.URGENTE ? '#ef4444' : 
-               value === Priorite.HAUTE ? '#f59e0b' : 
+        return value === Priorite.URGENTE ? '#ef4444' :
+               value === Priorite.HAUTE ? '#f59e0b' :
                value === Priorite.NORMALE ? '#3b82f6' : '#6b7280';
       } else if (type === 'type') {
         return value === TypeCourrier.EXTERNE ? '#06b6d4' : '#10b981';
@@ -4599,20 +4562,20 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       const labelWidth = contentWidth * 0.3;
       const valueWidth = contentWidth * 0.7;
       const rowHeight = lineHeight + cellPadding * 2;
-      
+
       // Vérifier si on a besoin d'une nouvelle page
       checkNewPage(rowHeight);
-      
+
       // Fond gris pour la colonne label
       pdf.setFillColor(249, 250, 251);
       pdf.rect(marginLeft, currentY, labelWidth, rowHeight, 'F');
-      
+
       // Bordure
       pdf.setDrawColor(229, 231, 235);
       pdf.rect(marginLeft, currentY, contentWidth, rowHeight);
       pdf.setDrawColor(209, 213, 219);
       pdf.line(marginLeft + labelWidth, currentY, marginLeft + labelWidth, currentY + rowHeight);
-      
+
       // Texte label
       pdf.setFontSize(11);
       pdf.setTextColor(55, 65, 81);
@@ -4621,7 +4584,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         maxWidth: labelWidth - cellPadding * 2,
         align: 'left'
       });
-      
+
       // Texte valeur ou badge
       if (badgeColor) {
         // Dessiner le badge
@@ -4629,15 +4592,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         const badgeHeight = 6;
         const badgeX = marginLeft + labelWidth + cellPadding;
         const badgeY = currentY + cellPadding;
-        
+
         const color = badgeColor.startsWith('#') ? badgeColor : `#${badgeColor}`;
         const r = parseInt(color.slice(1, 3), 16);
         const g = parseInt(color.slice(3, 5), 16);
         const b = parseInt(color.slice(5, 7), 16);
-        
+
         pdf.setFillColor(r, g, b);
         pdf.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 1, 1, 'F');
-        
+
         pdf.setTextColor(255, 255, 255);
         pdf.setFontSize(9);
         pdf.setFont('helvetica', 'bold');
@@ -4651,13 +4614,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           align: 'left'
         });
       }
-      
+
       currentY += rowHeight;
     };
 
     // Utiliser les colonnes configurées ou les colonnes par défaut
     let columns = (params.columns || []).filter(col => col.enabled);
-    
+
     // Si aucune colonne n'est configurée, utiliser les colonnes par défaut
     if (columns.length === 0) {
       columns = [
@@ -4671,7 +4634,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         { key: 'dateEnregistrement', label: 'Date', enabled: true, width: 0.12 }
       ];
     }
-    
+
     // Ajouter les colonnes dynamiques qui ne sont pas déjà dans la liste
     const allDynamicFields = filteredCourriers.flatMap(courrier => {
       return dynamicFields.filter(field => {
@@ -4680,7 +4643,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         return isAvailable && value !== undefined && value !== null && value !== '';
       });
     });
-    
+
     const uniqueDynamicFields = Array.from(new Map(allDynamicFields.map(f => [f.name, f])).values());
     uniqueDynamicFields.forEach(field => {
       const colKey = `extra_${field.name}`;
@@ -4688,19 +4651,19 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         columns.push({ key: colKey, label: field.label || field.name, enabled: true, width: 0.15 });
       }
     });
-    
+
     // Ajuster les largeurs pour qu'elles totalisent 1.0
     const totalWidth = columns.reduce((sum, col) => sum + (col.width || 0.1), 0);
     if (totalWidth > 0) {
       columns.forEach(col => col.width = (col.width || 0.1) / totalWidth);
     }
-    
+
     const headerTitle = applyTitleCase((params.headerTitle || '').trim() || 'Fiche d’enregistrement', params.headerTitleCase);
     const headerSubtitle = (params.headerSubtitle || '').trim();
     const headerLogo = params.headerLogoUrl;
 
     const rowHeight = lineHeight + cellPadding * 2;
-    
+
     // Vérifier si on a besoin d'une nouvelle page pour le titre
     checkNewPage(headerHeight + rowHeight * (filteredCourriers.length + 1));
 
@@ -4746,20 +4709,20 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     pdf.setFontSize(9);
     pdf.text(`Généré le ${new Date().toLocaleString('fr-FR')} • Total: ${filteredCourriers.length} courrier(s)`, textX, currentY + 18, { align: textAlign });
     currentY += headerHeight + 4;
-    
+
     // On n'ajoute plus de titre supplémentaire pour éviter les doublons sous le logo
-    
+
     // En-tête du tableau
     pdf.setFillColor(249, 250, 251);
     pdf.rect(marginLeft, currentY, contentWidth, rowHeight, 'F');
     pdf.setDrawColor(209, 213, 219);
     pdf.rect(marginLeft, currentY, contentWidth, rowHeight);
-    
+
     let colX = marginLeft;
     pdf.setFontSize(10);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(55, 65, 81);
-    
+
     columns.forEach((col, colIndex) => {
       const colWidth = contentWidth * (col.width ?? 0);
       if (colIndex > 0) {
@@ -4771,13 +4734,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       });
       colX += colWidth;
     });
-    
+
     currentY += rowHeight;
-    
+
     // Lignes de données
     filteredCourriers.forEach((courrier, index) => {
       checkNewPage(rowHeight);
-      
+
       // Fond alterné pour les lignes
       if (index % 2 === 0) {
         pdf.setFillColor(255, 255, 255);
@@ -4785,27 +4748,27 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         pdf.setFillColor(249, 250, 251);
       }
       pdf.rect(marginLeft, currentY, contentWidth, rowHeight, 'F');
-      
+
       // Bordures
       pdf.setDrawColor(229, 231, 235);
       pdf.rect(marginLeft, currentY, contentWidth, rowHeight);
-      
+
       colX = marginLeft;
       pdf.setFontSize(9);
       pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(17, 24, 39);
-      
+
       columns.forEach((col, colIndex) => {
         const colWidth = contentWidth * (col.width ?? 0);
         if (colIndex > 0) {
           pdf.line(colX, currentY, colX, currentY + rowHeight);
         }
-        
+
         let cellValue = '';
         let badgeColor: string | undefined;
-        
+
         if (col.key === 'numero') {
-          cellValue = `#${courrier.numero}`;
+          cellValue = `#${courrierReferences(courrier)}`;
           pdf.setFont('helvetica', 'bold');
         } else if (col.key === 'statut') {
           cellValue = courrier.statut;
@@ -4838,22 +4801,22 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             }
           }
         }
-        
+
         if (badgeColor) {
           // Dessiner le badge
           const badgeWidth = Math.min(20, colWidth - cellPadding * 2);
           const badgeHeight = 5;
           const badgeX = colX + cellPadding;
           const badgeY = currentY + cellPadding;
-          
+
           const color = badgeColor.startsWith('#') ? badgeColor : `#${badgeColor}`;
           const r = parseInt(color.slice(1, 3), 16);
           const g = parseInt(color.slice(3, 5), 16);
           const b = parseInt(color.slice(5, 7), 16);
-          
+
           pdf.setFillColor(r, g, b);
           pdf.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 1, 1, 'F');
-          
+
           pdf.setTextColor(255, 255, 255);
           pdf.setFontSize(8);
           pdf.setFont('helvetica', 'bold');
@@ -4865,11 +4828,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             align: 'left'
           });
         }
-        
+
         pdf.setFont('helvetica', 'normal');
         colX += colWidth;
       });
-      
+
       currentY += rowHeight;
     });
 
@@ -4880,10 +4843,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   const previewPDF = async (settings?: ExportSettings) => {
     const params = settings || exportSettings;
     setGeneratingPreview(true);
-    
+
     try {
       const pdf = generatePDFDirect(params);
-      
+
       // Générer l'URL du PDF pour la prévisualisation
       const pdfBlob = pdf.output('blob');
       const url = URL.createObjectURL(pdfBlob);
@@ -4909,10 +4872,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       div.textContent = text;
       return div.innerHTML;
     };
-    
+
     // Utiliser les colonnes configurées
     let columns = (params.columns || []).filter(col => col.enabled);
-    
+
     // Si aucune colonne n'est configurée, utiliser les colonnes par défaut
     if (columns.length === 0) {
       columns = [
@@ -4926,7 +4889,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         { key: 'dateEnregistrement', label: 'Date', enabled: true, width: 0.12 }
       ];
     }
-    
+
     // Ajouter les colonnes dynamiques
     const allDynamicFields = filteredCourriers.flatMap(courrier => {
       return dynamicFields.filter(field => {
@@ -4935,7 +4898,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         return isAvailable && value !== undefined && value !== null && value !== '';
       });
     });
-    
+
     const uniqueDynamicFields = Array.from(new Map(allDynamicFields.map(f => [f.name, f])).values());
     uniqueDynamicFields.forEach(field => {
       const colKey = `extra_${field.name}`;
@@ -4943,7 +4906,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         columns.push({ key: colKey, label: field.label || field.name, enabled: true, width: 0.15 });
       }
     });
-    
+
     // Ajuster les largeurs
     const totalWidth = columns.reduce((sum, col) => sum + (col.width || 0.1), 0);
     if (totalWidth > 0) {
@@ -5150,9 +5113,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           <div style="flex:1; width:100%; text-align:${exportSettings.headerAlign === 'right' ? 'right' : (exportSettings.headerAlign === 'center' ? 'center' : 'left')};">
             <h1 style="text-align:${exportSettings.headerAlign === 'right' ? 'right' : (exportSettings.headerAlign === 'center' ? 'center' : 'left')};">${applyTitleCase((exportSettings.headerTitle || '').trim() || 'Fiche d’enregistrement', exportSettings.headerTitleCase)}</h1>
             ${(exportSettings.headerSubtitle || '').trim() ? `<p style="text-align:${exportSettings.headerAlign === 'right' ? 'right' : (exportSettings.headerAlign === 'center' ? 'center' : 'left')};">${applyTitleCase(exportSettings.headerSubtitle || '', exportSettings.headerTitleCase)}</p>` : ``}
-            <p style="text-align:${exportSettings.headerAlign === 'right' ? 'right' : (exportSettings.headerAlign === 'center' ? 'center' : 'left')};">Généré le ${new Date().toLocaleDateString('fr-FR', { 
-              day: '2-digit', 
-              month: 'long', 
+            <p style="text-align:${exportSettings.headerAlign === 'right' ? 'right' : (exportSettings.headerAlign === 'center' ? 'center' : 'left')};">Généré le ${new Date().toLocaleDateString('fr-FR', {
+              day: '2-digit',
+              month: 'long',
               year: 'numeric',
               hour: '2-digit',
               minute: '2-digit'
@@ -5163,15 +5126,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     `;
 
     filteredCourriers.forEach((courrier) => {
-      const statutColor = courrier.statut === StatutCourrier.TRAITE ? '#10b981' : 
-                         courrier.statut === StatutCourrier.EN_TRAITEMENT ? '#3b82f6' : 
+      const statutColor = courrier.statut === StatutCourrier.TRAITE ? '#10b981' :
+                         courrier.statut === StatutCourrier.EN_TRAITEMENT ? '#3b82f6' :
                          courrier.statut === StatutCourrier.ASSIGNE ? '#8b5cf6' :
                          courrier.statut === StatutCourrier.ORIENTE_DG ? '#f97316' :
                          courrier.statut === StatutCourrier.ORIENTE_DIRECTEUR ? '#ea580c' :
-                         courrier.statut === StatutCourrier.EN_ATTENTE_DG ? '#f59e0b' : 
+                         courrier.statut === StatutCourrier.EN_ATTENTE_DG ? '#f59e0b' :
                          courrier.statut === StatutCourrier.ENREGISTRE ? '#6b7280' : '#ef4444';
-      const prioriteColor = courrier.priorite === Priorite.URGENTE ? '#ef4444' : 
-                           courrier.priorite === Priorite.HAUTE ? '#f59e0b' : 
+      const prioriteColor = courrier.priorite === Priorite.URGENTE ? '#ef4444' :
+                           courrier.priorite === Priorite.HAUTE ? '#f59e0b' :
                            courrier.priorite === Priorite.NORMALE ? '#3b82f6' : '#6b7280';
       const typeColor = courrier.type === TypeCourrier.EXTERNE ? '#06b6d4' : '#10b981';
 
@@ -5191,9 +5154,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   ${columns.map(col => {
                     let cellContent = '';
                     let badgeColor: string | undefined;
-                    
+
                     if (col.key === 'numero') {
-                      cellContent = `<strong>#${escapeHtml(courrier.numero)}</strong>`;
+                      cellContent = `<strong>#${escapeHtml(courrierReferences(courrier))}</strong>`;
                     } else if (col.key === 'statut') {
                       cellContent = escapeHtml(courrier.statut);
                       badgeColor = statutColor;
@@ -5233,7 +5196,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         cellContent = '—';
                       }
                     }
-                    
+
                     if (badgeColor) {
                       return `<td><span class="badge-cell" style="background: ${badgeColor};">${cellContent}</span></td>`;
                     }
@@ -5259,12 +5222,12 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   const exportImage = async (settings?: typeof exportSettings) => {
     const params = settings || exportSettings;
     setExporting(true);
-    
+
     try {
       // Créer un conteneur temporaire pour la vue d'impression
       const printContainer = document.createElement('div');
       const htmlContent = renderPrintViewHTML(params);
-      
+
       // Créer un iframe pour rendre le HTML
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
@@ -5276,27 +5239,27 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       iframe.style.visibility = 'hidden';
       iframe.style.opacity = '0';
       iframe.style.zIndex = '-9999';
-      
+
       document.body.appendChild(iframe);
-      
+
       // Attendre que l'iframe soit chargé
       await new Promise<void>((resolve) => {
         iframe.onload = () => resolve();
         iframe.srcdoc = htmlContent;
       });
-      
+
       // Attendre un peu pour que le contenu soit rendu
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       const scaleMap = { low: 1, medium: 2, high: 3 };
       const scale = scaleMap[params.quality] || params.scale;
-      
+
       // Capturer le contenu de l'iframe
       const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
       if (!iframeDoc || !iframeDoc.body) {
         throw new Error('Impossible d\'accéder au contenu de l\'iframe');
       }
-      
+
       const canvas = await html2canvas(iframeDoc.body, {
         scale,
         backgroundColor: params.backgroundColor || '#ffffff',
@@ -5306,7 +5269,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         width: iframeDoc.body.scrollWidth,
         height: iframeDoc.body.scrollHeight
       });
-      
+
       // Dessiner en-tête + filigrane sur le canvas
       const ctx = canvas.getContext('2d');
       const pxPerMm = 3.779528;
@@ -5395,36 +5358,36 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           ctx.restore();
         }
       }
-      
+
       let dataUrl = canvas.toDataURL('image/png', 1.0);
-      
+
       if (params.colorMode === 'grayscale' || params.colorMode === 'blackwhite') {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const data = imageData.data;
-          
+
           for (let i = 0; i < data.length; i += 4) {
-            const gray = params.colorMode === 'blackwhite' 
+            const gray = params.colorMode === 'blackwhite'
               ? (data[i] + data[i + 1] + data[i + 2]) / 3 > 128 ? 255 : 0
               : (data[i] + data[i + 1] + data[i + 2]) / 3;
-            
+
             data[i] = gray;
             data[i + 1] = gray;
             data[i + 2] = gray;
           }
-          
+
           ctx.putImageData(imageData, 0, 0);
           dataUrl = canvas.toDataURL('image/png', 1.0);
         }
       }
-      
+
       const link = document.createElement('a');
       link.download = `courriers_${new Date().toISOString().split('T')[0]}.png`;
       link.href = dataUrl;
       link.click();
       setShowExportSettings(false);
-      
+
       // Nettoyer
       if (document.body.contains(iframe)) {
         document.body.removeChild(iframe);
@@ -5441,14 +5404,14 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
   const exportExcel = async () => {
     setExporting(true);
-    
+
     try {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Courriers');
-      
+
       // Utiliser les colonnes configurées
       let columns = (exportSettings.columns || []).filter(col => col.enabled);
-      
+
       // Si aucune colonne n'est configurée, utiliser les colonnes par défaut
       if (columns.length === 0) {
         columns = [
@@ -5462,14 +5425,14 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           { key: 'dateEnregistrement', label: 'Date', enabled: true, width: 0.12 }
         ];
       }
-      
+
       // Ajouter les colonnes dynamiques
       const allFields = new Set<string>();
       filteredCourriers.forEach(c => {
         const fields = getTableFields(resolveCourrierSens(c), c.type);
         fields.forEach(f => allFields.add(f.name));
       });
-      
+
       allFields.forEach(fieldName => {
         const colKey = `extra_${fieldName}`;
         if (!columns.find(col => col.key === colKey)) {
@@ -5477,10 +5440,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           columns.push({ key: colKey, label: field?.label || fieldName, enabled: true, width: 0.15 });
         }
       });
-      
+
       // En-têtes
       const headers = columns.map(col => col.label);
-      
+
       worksheet.columns = headers.map((h, i) => ({
         header: h,
         key: `col${i}`,
@@ -5562,16 +5525,16 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         };
       });
       const headerRowIndex = titleStartRow + titleRows.length + spacerAfterHeader; // première ligne d'en-tête du tableau
-      
+
       // Données
       filteredCourriers.forEach((courrier, index) => {
         const row: any = {};
-        
+
         columns.forEach((col, colIndex) => {
           let cellValue: any = '';
-          
+
           if (col.key === 'numero') {
-            cellValue = `#${courrier.numero}`;
+            cellValue = `#${courrierReferences(courrier)}`;
           } else if (col.key === 'statut') {
             cellValue = courrier.statut;
           } else if (col.key === 'priorite') {
@@ -5611,13 +5574,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               }
             }
           }
-          
+
           row[`col${colIndex}`] = cellValue;
         });
-        
+
         worksheet.addRow(row);
       });
-      
+
       // Style de l'en-tête (même design que PDF)
       const headerRow = worksheet.getRow(titleRows.length + 1);
       headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
@@ -5628,7 +5591,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       };
       headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
       headerRow.height = 20;
-      
+
       // Style des lignes de données (fond alterné comme PDF)
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber > titleRows.length + 1) {
@@ -5646,7 +5609,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               fgColor: { argb: 'FFF9FAFB' } // Gris clair
             };
           }
-          
+
           // Bordures
           row.eachCell((cell) => {
             cell.border = {
@@ -5660,25 +5623,25 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           });
         }
       });
-      
+
       // Ajuster la largeur des colonnes
       columns.forEach((col, index) => {
         const column = worksheet.getColumn(index + 1);
         const baseWidth = 15;
         column.width = baseWidth * (col.width || 0.1) * 10;
       });
-      
+
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
-      
+
       const link = document.createElement('a');
       link.download = `courriers_${new Date().toISOString().split('T')[0]}.xlsx`;
       link.href = URL.createObjectURL(blob);
       link.click();
       URL.revokeObjectURL(link.href);
-      
+
       setShowExportSettings(false);
     } catch (error) {
       console.error('Erreur export Excel:', error);
@@ -5702,17 +5665,17 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     if (!formConfig) {
       return [];
     }
-    
+
     try {
     const config = formConfig?.[sens]?.[type] || [];
     const tableFields: Array<{ id: string; name: string; label: string; type?: string; icon?: string; order?: number }> = [];
-      
+
       // Champs de base à exclure (déjà affichés dans les colonnes principales)
       const CORE_FIELDS = ['type', 'expediteur', 'destinataire', 'objet'];
-    
+
     // Types de champs à exclure par défaut du tableau
     const excludedTypes = ['textarea', 'file'];
-    
+
     // Parcourir les sections et colonnes dans l'ordre pour préserver l'ordre du formulaire
       if (Array.isArray(config)) {
     config.forEach((section, sectionIndex) => {
@@ -5724,7 +5687,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           const shouldShowInTable = field.showInTable !== false; // Par défaut true sauf si explicitement false
           const isExcludedType = field.type && excludedTypes.includes(field.type);
                   const isCoreField = field.name && CORE_FIELDS.includes(field.name);
-          
+
           // Inclure le champ si :
           // 1. showInTable n'est pas false ET
           // 2. Le type n'est pas dans la liste des types exclus
@@ -5748,7 +5711,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           }
     });
       }
-    
+
     // Trier par ordre pour respecter l'ordre du formulaire
     return tableFields.sort((a, b) => (a.order || 0) - (b.order || 0));
     } catch (error) {
@@ -5759,12 +5722,12 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
   // Fonction pour obtenir les champs unifiés (sans doublons) pour tous les types et sens
   // Si un champ existe dans les deux types avec le même nom, une seule colonne est créée
-  const getUnifiedTableFields = (): Array<{ 
-    id: string; 
-    name: string; 
-    label: string; 
-    type?: string; 
-    icon?: string; 
+  const getUnifiedTableFields = (): Array<{
+    id: string;
+    name: string;
+    label: string;
+    type?: string;
+    icon?: string;
     order?: number;
     availableIn: Set<string>; // Sens+type pour lesquels ce champ est disponible
   }> => {
@@ -5772,7 +5735,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     if (!formConfig) {
       return [];
     }
-    
+
     try {
       const sensList = filters.sens
         ? [filters.sens as SensCourrier]
@@ -5780,19 +5743,19 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       const typeList = filters.type
         ? [filters.type as TypeCourrier]
         : [TypeCourrier.EXTERNE, TypeCourrier.INTERNE];
-      
+
       // Map pour éviter les doublons basés sur le nom du champ
       // Si un champ existe dans les deux types avec le même nom, on crée une seule entrée
-      const fieldMap = new Map<string, { 
-        id: string; 
-        name: string; 
-        label: string; 
-        type?: string; 
-        icon?: string; 
+      const fieldMap = new Map<string, {
+        id: string;
+        name: string;
+        label: string;
+        type?: string;
+        icon?: string;
         order?: number;
         availableIn: Set<string>;
       }>();
-      
+
       sensList.forEach(sens => {
         typeList.forEach(type => {
           const availabilityKey = getAvailabilityKey(sens, type);
@@ -5818,7 +5781,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           });
         });
       });
-      
+
       // Convertir en tableau et trier par ordre (le filtrage des champs de base se fera à l'affichage)
       return Array.from(fieldMap.values())
         .sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -5857,7 +5820,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   // Fonction pour formater la valeur d'un champ dynamique
   const formatFieldValue = (value: any, fieldType?: string): string => {
     if (value === null || value === undefined || value === '') return '-';
-    
+
     if (fieldType === 'datetime') {
       try {
         const date = value instanceof Date ? value : new Date(value);
@@ -5873,18 +5836,18 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         return '-';
       }
     }
-    
+
     if (fieldType === 'checkbox') {
       if (Array.isArray(value)) {
         return value.filter(Boolean).join(', ') || '-';
       }
       return value ? 'Oui' : 'Non';
     }
-    
+
     if (fieldType === 'select' || fieldType === 'radio') {
       return String(value);
     }
-    
+
     return String(value);
   };
 
@@ -5896,15 +5859,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     try {
       const aujourdhui = new Date();
       aujourdhui.setHours(0, 0, 0, 0);
-      const echeance = dateEcheance instanceof Date 
-        ? dateEcheance 
+      const echeance = dateEcheance instanceof Date
+        ? dateEcheance
         : new Date(dateEcheance);
-      
+
       // Vérifier si la date est valide
       if (isNaN(echeance.getTime())) {
         return { jours: Infinity, estDepasse: false, estUrgent: false };
       }
-      
+
       echeance.setHours(0, 0, 0, 0);
       const diffTime = echeance.getTime() - aujourdhui.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -5951,8 +5914,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       const dateDebut = new Date(filters.dateDebut);
       dateDebut.setHours(0, 0, 0, 0);
       filtered = filtered.filter(c => {
-        const dateReception = c.dateReception instanceof Date 
-          ? c.dateReception 
+        const dateReception = c.dateReception instanceof Date
+          ? c.dateReception
           : new Date(c.dateReception);
         dateReception.setHours(0, 0, 0, 0);
         return dateReception >= dateDebut;
@@ -5962,8 +5925,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       const dateFin = new Date(filters.dateFin);
       dateFin.setHours(23, 59, 59, 999);
       filtered = filtered.filter(c => {
-        const dateReception = c.dateReception instanceof Date 
-          ? c.dateReception 
+        const dateReception = c.dateReception instanceof Date
+          ? c.dateReception
           : new Date(c.dateReception);
         dateReception.setHours(0, 0, 0, 0);
         return dateReception <= dateFin;
@@ -5972,7 +5935,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     if (debouncedSearch) {
       const searchLower = debouncedSearch.toLowerCase();
       filtered = filtered.filter(c =>
-        (c.numero || '').toLowerCase().includes(searchLower) ||
+        courrierSearchReferences(c).toLowerCase().includes(searchLower) ||
         (c.objet || '').toLowerCase().includes(searchLower) ||
         (c.expediteur || '').toLowerCase().includes(searchLower) ||
         (c.destinataire || '').toLowerCase().includes(searchLower) ||
@@ -6005,18 +5968,18 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     // Trier selon le critère sélectionné
     filtered.sort((a, b) => {
       let comparison = 0;
-      
+
       try {
         switch (sortBy) {
           case 'dateEnregistrement': {
             // Gérer les dates qui peuvent être des strings ou des objets Date
-            const dateA = a.dateEnregistrement instanceof Date 
-              ? a.dateEnregistrement 
+            const dateA = a.dateEnregistrement instanceof Date
+              ? a.dateEnregistrement
               : (a.dateEnregistrement ? new Date(a.dateEnregistrement) : new Date(0));
-            const dateB = b.dateEnregistrement instanceof Date 
-              ? b.dateEnregistrement 
+            const dateB = b.dateEnregistrement instanceof Date
+              ? b.dateEnregistrement
               : (b.dateEnregistrement ? new Date(b.dateEnregistrement) : new Date(0));
-            
+
             // Vérifier si les dates sont valides
             const timeA = isNaN(dateA.getTime()) ? 0 : dateA.getTime();
             const timeB = isNaN(dateB.getTime()) ? 0 : dateB.getTime();
@@ -6025,13 +5988,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           }
           case 'dateReception': {
             // Gérer les dates qui peuvent être des strings ou des objets Date
-            const dateA = a.dateReception instanceof Date 
-              ? a.dateReception 
+            const dateA = a.dateReception instanceof Date
+              ? a.dateReception
               : (a.dateReception ? new Date(a.dateReception) : new Date(0));
-            const dateB = b.dateReception instanceof Date 
-              ? b.dateReception 
+            const dateB = b.dateReception instanceof Date
+              ? b.dateReception
               : (b.dateReception ? new Date(b.dateReception) : new Date(0));
-            
+
             // Vérifier si les dates sont valides
             const timeA = isNaN(dateA.getTime()) ? 0 : dateA.getTime();
             const timeB = isNaN(dateB.getTime()) ? 0 : dateB.getTime();
@@ -6053,7 +6016,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               const fieldName = sortBy.replace('extraFields.', '');
               const valueA = a.extraFields?.[fieldName];
               const valueB = b.extraFields?.[fieldName];
-              
+
               // Trier selon le type de valeur
               if (valueA === null || valueA === undefined) {
                 comparison = valueB === null || valueB === undefined ? 0 : 1;
@@ -6073,23 +6036,23 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               break;
             }
             // Par défaut, trier par date d'enregistrement
-            const dateA = a.dateEnregistrement instanceof Date 
-              ? a.dateEnregistrement 
+            const dateA = a.dateEnregistrement instanceof Date
+              ? a.dateEnregistrement
               : (a.dateEnregistrement ? new Date(a.dateEnregistrement) : new Date(0));
-            const dateB = b.dateEnregistrement instanceof Date 
-              ? b.dateEnregistrement 
+            const dateB = b.dateEnregistrement instanceof Date
+              ? b.dateEnregistrement
               : (b.dateEnregistrement ? new Date(b.dateEnregistrement) : new Date(0));
-            
+
             const timeA = isNaN(dateA.getTime()) ? 0 : dateA.getTime();
             const timeB = isNaN(dateB.getTime()) ? 0 : dateB.getTime();
             comparison = timeA - timeB;
           }
         }
       } catch (error) {
-        console.error('Erreur lors du tri:', error, { 
+        console.error('Erreur lors du tri:', error, {
           a: { id: a.id, numero: a.numero, dateEnregistrement: a.dateEnregistrement },
           b: { id: b.id, numero: b.numero, dateEnregistrement: b.dateEnregistrement },
-          sortBy 
+          sortBy
         });
         // En cas d'erreur, utiliser l'ID comme critère de tri pour maintenir un ordre stable
         try {
@@ -6098,13 +6061,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           comparison = 0;
         }
       }
-      
+
       // Appliquer l'ordre (ascendant ou descendant)
       // Si comparison est 0 (égalité), utiliser l'ID pour un tri stable
       if (comparison === 0) {
         comparison = a.id.localeCompare(b.id);
       }
-      
+
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
@@ -6173,9 +6136,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     if (!extension && fichier) {
       extension = fichier.split('.').pop()?.toLowerCase();
     }
-    
+
     if (!extension) return faFileAlt;
-    
+
     switch (extension.toLowerCase()) {
       case 'pdf':
         return faFilePdf;
@@ -6217,9 +6180,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     if (!extension && fichier) {
       extension = fichier.split('.').pop()?.toLowerCase();
     }
-    
+
     if (!extension) return 'text-blue-600';
-    
+
     switch (extension.toLowerCase()) {
       case 'pdf':
         return 'text-red-600';
@@ -6352,7 +6315,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         parentId: dossierModalData.parentId,
         userId: user?.id
       });
-      
+
       const createdDossier = await categorieFichierService.createCategorie(
         dossierModalData.courrierId,
         newDossierName.trim(),
@@ -7180,7 +7143,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     try {
     // Adapter les colonnes sans setState (évite de re-render pendant la génération)
     const columnsForPdf = getRegistreColumnsForCurrentFilters();
-    
+
     // Filtrer les courriers selon les filtres du registre
     let filteredCourriers = courriers;
     if (registreConfig.filterSens !== 'ALL') {
@@ -7198,21 +7161,21 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     if (registreConfig.filterEntityId !== 'ALL') {
       const entityId = registreConfig.filterEntityId;
       const selectedEntity = entiteOrganisationnelleService.getEntityById(entityId);
-      
+
       if (selectedEntity) {
         // Récupérer toutes les sous-entités de l'entité sélectionnée (y compris elle-même)
         const getAllSubEntities = (parentId: string): string[] => {
           const entity = entiteOrganisationnelleService.getEntityById(parentId);
           if (!entity) return [parentId];
-          
+
           const children = entiteOrganisationnelleService.getEntitiesByParent(parentId);
           if (children.length === 0) return [parentId];
-          
+
           return [parentId, ...children.flatMap(child => getAllSubEntities(child.id))];
         };
-        
+
         const allEntityIds = getAllSubEntities(entityId);
-        
+
         filteredCourriers = filteredCourriers.filter(c => {
           // Filtrer selon le type de l'entité sélectionnée
           if (selectedEntity.type === 'direction') {
@@ -7240,7 +7203,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     if (debouncedRegistreSearch) {
       const searchLower = debouncedRegistreSearch.toLowerCase();
       filteredCourriers = filteredCourriers.filter(c =>
-        c.numero.toLowerCase().includes(searchLower) ||
+        courrierSearchReferences(c).toLowerCase().includes(searchLower) ||
         c.objet.toLowerCase().includes(searchLower) ||
         (c.expediteur && c.expediteur.toLowerCase().includes(searchLower)) ||
         (c.destinataire && c.destinataire.toLowerCase().includes(searchLower))
@@ -7393,7 +7356,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       let maxWidth = doc.getTextWidth(header) + 6;
       filteredCourriers.forEach(c => {
         let value = '-';
-        if (key === 'numero') value = c.numero || '-';
+        if (key === 'numero') value = courrierReferences(c) || '-';
         else if (key === 'dateReception') value = exportSettingsService.formatDate(c.dateReception);
         else if (key === 'annotationDG') {
           const annotContent = dgAnnotationMap.get(c.id);
@@ -7499,7 +7462,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       let xPos = startX;
       colKeys.forEach((key, i) => {
         let value = '-';
-        if (key === 'numero') value = c.numero || '-';
+        if (key === 'numero') value = courrierReferences(c) || '-';
         else if (key === 'dateReception') value = exportSettingsService.formatDate(c.dateReception);
         else if (key === 'annotationDG') {
           const annotContent = dgAnnotationMap.get(c.id);
@@ -7592,7 +7555,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       'Confirmation de suppression'
     );
     if (!confirmed) return;
-    
+
     try {
       setLoadingOperations(prev => ({ ...prev, delete: true }));
       await categorieFichierService.deleteCategorieFichier(fichierId);
@@ -7615,19 +7578,19 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     // Compter les enfants pour le message de confirmation
     const df = dossiersFichiers.get(courrierId) || [];
     const children = df.filter(d => d.parentId === dossierId);
-    
+
     // Fonction récursive pour compter tous les descendants
     const countChildren = (parentId: string): number => {
       const direct = df.filter(d => d.parentId === parentId);
       return direct.length + direct.reduce((acc, child) => acc + countChildren(child.id), 0);
     };
-    
+
     const totalChildren = countChildren(dossierId);
-    
+
     const message = totalChildren > 0
       ? `Êtes-vous sûr de vouloir supprimer le dossier "${dossierNom}" ?\n\nCette action supprimera également ${totalChildren} élément(s) contenu(s) dans ce dossier (fichiers et sous-dossiers).\n\nCette action est irréversible.`
       : `Êtes-vous sûr de vouloir supprimer le dossier "${dossierNom}" ?\n\nCette action est irréversible.`;
-    
+
     const confirmed = await showConfirm(message, 'warning', 'Confirmation de suppression');
     if (confirmed) {
       setLoadingOperations(prev => ({ ...prev, delete: true }));
@@ -7777,7 +7740,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   // Coller les éléments copiés dans une catégorie
   const handlePasteItems = async (targetParentId: string | undefined, courrierId: string) => {
     if (copiedItems.length === 0) return;
-    
+
     try {
       setLoadingOperations(prev => ({ ...prev, insert: true }));
       // Attendre toutes les copies pour s'assurer qu'elles sont persistées dans l'API
@@ -7786,19 +7749,19 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           categorieFichierService.copyCategorieFichier(item.id, targetParentId || '', courrierId, user?.id)
         )
       );
-      
+
       // Si on colle dans une catégorie, l'ouvrir automatiquement
       if (targetParentId) {
         const folderKey = `folder-${targetParentId}`;
         setExpandedCourriers(prev => new Set([...prev, folderKey]));
       }
-      
+
       // Recharger les dossiers/fichiers depuis l'API
       await loadDossiersFichiers(courrierId);
       const count = copiedItems.length;
       setCopiedItems([]);
       setSelectedItems(new Set());
-      
+
       setLoadingOperations(prev => ({ ...prev, insert: false }));
       showAlert(`${count} élément(s) collé(s) avec succès`, 'success');
     } catch (error) {
@@ -7818,23 +7781,23 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   const handleItemDrop = async (targetDossierId: string, courrierId: string, e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (!draggedItem) return;
-    
+
     try {
       setLoadingOperations(prev => ({ ...prev, update: true }));
-      
+
       // Empêcher de déplacer un élément dans lui-même ou ses descendants
       if (draggedItem.id === targetDossierId) {
         showAlert('Impossible de déplacer un élément dans lui-même', 'error', 'Erreur de déplacement');
         return;
       }
-      
+
       // Déplacer l'élément
       await categorieFichierService.updateCategorieFichier(draggedItem.id, {
         parentId: targetDossierId
       });
-      
+
       // Recharger les fichiers depuis l'API pour s'assurer que le déplacement est persisté
       await loadDossiersFichiers(courrierId);
       showAlert(`${draggedItem.nom} déplacé avec succès`, 'success');
@@ -7853,10 +7816,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   const renderTree = (items: CategorieFichier[], level: number = 0, courrierId: string): React.ReactNode => {
     // TOUJOURS utiliser les données les plus récentes du state, pas celles passées en paramètre
     const allItems = dossiersFichiers.get(courrierId) || items;
-    
+
     // Éléments racine : pas de parentId (null, undefined ou chaîne vide)
     const rootItems = allItems.filter(item => item.parentId == null || item.parentId === '');
-    
+
     // Créer un map pour trouver rapidement les enfants d'un parent
     const childrenMap = new Map<string, CategorieFichier[]>();
     allItems.forEach(item => {
@@ -7867,7 +7830,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         childrenMap.get(item.parentId)!.push(item);
       }
     });
-    
+
     // Fonction récursive pour rendre un élément et ses enfants
     const renderItem = (item: CategorieFichier, currentLevel: number = 0): React.ReactNode => {
       const isDraggedOver = draggedOverDossier === item.id;
@@ -7882,8 +7845,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           {item.type === 'categorie' ? (
             <div
               className={`flex items-center gap-2 text-sm p-2 rounded transition-colors ${
-                isDraggedOver ? 'bg-blue-100 border-2 border-blue-400 border-dashed' : 
-                isSelected ? 'bg-blue-50 border border-blue-300' : 
+                isDraggedOver ? 'bg-blue-100 border-2 border-blue-400 border-dashed' :
+                isSelected ? 'bg-blue-50 border border-blue-300' :
                 'hover:bg-gray-50'
               }`}
               style={{ paddingLeft: `${currentLevel * 24}px` }}
@@ -7920,7 +7883,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   e.stopPropagation();
                   const key = `folder-${item.id}`;
                   const willBeExpanded = !isExpanded;
-                  
+
                   setExpandedCourriers(prev => {
                     const newSet = new Set(prev);
                     if (newSet.has(key)) {
@@ -7930,7 +7893,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     }
                     return newSet;
                   });
-                  
+
                   // Recharger les données si on ouvre la catégorie
                   if (willBeExpanded) {
                     loadDossiersFichiers(courrierId);
@@ -7947,7 +7910,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   e.stopPropagation();
                   const key = `folder-${item.id}`;
                   const willBeExpanded = !isExpanded;
-                  
+
                   setExpandedCourriers(prev => {
                     const newSet = new Set(prev);
                     if (newSet.has(key)) {
@@ -7957,7 +7920,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     }
                     return newSet;
                   });
-                  
+
                   // Recharger les données si on ouvre la catégorie pour s'assurer d'avoir les dernières données
                   if (willBeExpanded) {
                     loadDossiersFichiers(courrierId);
@@ -8013,7 +7976,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               </div>
             </div>
             ) : (
-              <div 
+              <div
                 className={`flex items-center gap-2 text-sm hover:bg-gray-50 p-1 rounded group ${
                   isSelected ? 'bg-blue-50 border border-blue-300' : ''
                 }`}
@@ -8028,12 +7991,12 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   onClick={(e) => e.stopPropagation()}
                   className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
-                <div 
+                <div
                   className="flex items-center gap-2 flex-1 cursor-pointer"
                 onClick={() => openViewFileModal(item)}
               >
-                <FontAwesomeIcon 
-                  icon={getFileIcon(item.extension)} 
+                <FontAwesomeIcon
+                  icon={getFileIcon(item.extension)}
                   className={`text-base ${getFileIconColor(item.extension)}`}
                 />
                 <span className="text-gray-600">{item.nom}</span>
@@ -8092,17 +8055,20 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         </div>
       );
     };
-    
+
     // Rendre tous les éléments racine
     return rootItems.map(item => renderItem(item, level));
   };
 
+  const toggleRowDetails = (id: string) => { if (!rowDetails.has(id) && user?.id) void markCourrierRead(id, user.id).catch(error => console.warn('Lecture non enregistrée', error)); setRowDetails(previous => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
+  const renderCompactSummary = (courrier: Courrier) => <CourrierSummary courrier={courrier} objet={getCourrierObjet(courrier)} status={getStatutLabel(courrier.statut)} date={getDynamicReceptionDateValue(courrier) || courrier.dateReception} urgent={(mapToPriorite(getDynamicPriorityValue(courrier)) || courrier.priorite) === Priorite.URGENTE} highPriority={(mapToPriorite(getDynamicPriorityValue(courrier)) || courrier.priorite) === Priorite.HAUTE} files={(filesCounts.get(courrier.id)?.nbFichiers || 0) + (filesCounts.get(courrier.id)?.nbCategories || 0)} onDetails={() => toggleRowDetails(courrier.id)} onFiles={() => toggleExpand(courrier.id)} onOpen={() => { const main = getMainFile(courrier); const extension = main?.split('.').pop()?.toLowerCase(); if (extension && ['pdf','jpg','jpeg','png'].includes(extension)) navigate(`/courriers/${courrier.id}?vue=annotations`); else { setSelectedCourrierForResume(courrier); setShowResumeModal(true); } }} />;
+
   const renderCourrierRow = (courrier: Courrier, index: number, level: number = 0): React.ReactNode => (
     <React.Fragment key={courrier.id}>
-      <tr 
+      <tr
         className={`group transition-all duration-200 hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-transparent even:bg-surface-50/40 cursor-pointer ${
-          selectedCourriers.has(courrier.id) 
-            ? 'bg-blue-50/70 border-l-4 border-l-blue-500' 
+          selectedCourriers.has(courrier.id)
+            ? 'bg-blue-50/70 border-l-4 border-l-blue-500'
             : 'border-l-4 border-l-transparent'
         } ${draggedCourrierId === courrier.id ? 'opacity-70' : ''}`}
         style={{ animationDelay: `${index * 30}ms` }}
@@ -8142,7 +8108,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       <td className="px-4 py-4 whitespace-nowrap">
         {/* Checkbox déplacée à droite dans Actions */}
       </td>
-      <td className="px-6 py-4 whitespace-nowrap">
+      <td className="px-6 py-4 courrier-subject-cell">
+        {rowDetails.has(courrier.id) ? <div className="courrier-expanded-details"><div className="courrier-mobile-correspondents"><CourrierCorrespondents courrier={courrier}/></div><button type="button" className="courrier-close-details" onClick={e => { e.stopPropagation(); toggleRowDetails(courrier.id); }}>Réduire les détails ↑</button>
         <div className="flex flex-col gap-2">
           <div
             className="flex items-center gap-3"
@@ -8154,15 +8121,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 if (mainFile) {
                   const extension = mainFile.split('.').pop()?.toLowerCase();
                   return (
-                    <FontAwesomeIcon 
-                      icon={getFileIcon(extension, mainFile)} 
+                    <FontAwesomeIcon
+                      icon={getFileIcon(extension, mainFile)}
                       className={`text-lg ${getFileIconColor(extension, mainFile)}`}
                       title={`Document: ${mainFile}`}
                     />
                   );
                 }
                 return (
-                  <FontAwesomeIcon 
+                  <FontAwesomeIcon
                     icon={faPaperclip}
                     className="text-surface-300 text-lg"
                     title="Aucun document attaché"
@@ -8172,7 +8139,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-surface-900">{courrier.numero}</span>
+                <span className="text-sm font-bold text-surface-900">{courrierReferences(courrier)}</span>
                 {isNouveauCourrier(courrier.createdAt) && (
                   <span
                     className="px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wide"
@@ -8200,8 +8167,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 transition-all"
                   title={expandedCourriers.has(courrier.id) ? "Masquer les fichiers" : "Visualiser les fichiers"}
                 >
-                  <FontAwesomeIcon 
-                    icon={expandedCourriers.has(courrier.id) ? faFolderOpen : faFolder} 
+                  <FontAwesomeIcon
+                    icon={expandedCourriers.has(courrier.id) ? faFolderOpen : faFolder}
                     className="text-xs"
                   />
                   <span>{expandedCourriers.has(courrier.id) ? "Masquer" : "Visualiser"}</span>
@@ -8349,9 +8316,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             </div>
           </div>
         </div>
+      </div> : renderCompactSummary(courrier)}
       </td>
       {/* Expéditeur / Destinataire */}
-      <td className="px-6 py-4">
+      <td className="px-6 py-4 courrier-correspondents-cell">{rowDetails.has(courrier.id) ? <>
         <div className="max-w-[280px] space-y-2" title={`Expéditeur: ${courrier.expediteur || '—'} — Destinataire: ${courrier.destinataire || '—'}`}>
           <div className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-1.5 border border-blue-100">
             <div className="flex-shrink-0 w-6 h-6 rounded-md bg-blue-500 flex items-center justify-center">
@@ -8372,7 +8340,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             </div>
           </div>
         </div>
-      </td>
+      </> : <CourrierCorrespondents courrier={courrier} />}</td>
       {/* Colonne actions - clics ne doivent pas ouvrir le modal résumé */}
       <td className="px-4 py-4 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-end gap-2">
@@ -8384,7 +8352,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               onChange={(e) => handleSelectCourrier(courrier.id, e)}
               onClick={(e) => e.stopPropagation()}
               className="w-4 h-4 text-blue-600 border-2 border-surface-300 rounded focus:ring-blue-500 focus:ring-offset-0 transition-colors cursor-pointer"
-              aria-label={`Sélectionner le courrier ${courrier.numero}`}
+              aria-label={`Sélectionner le courrier ${courrierReferences(courrier)}`}
             />
           </div>
           <button
@@ -8541,17 +8509,17 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               const df = dossiersFichiers.get(courrier.id) || [];
               const isDraggedOver = draggedOverCourrier === courrier.id;
               const isLoadingFichiers = loadingFichiersCourrierId === courrier.id;
-              
+
               // Récupérer les accusés de réception depuis localStorage (pour courriers sortants uniquement)
               const isSortant = getCourrierSens(courrier) === SensCourrier.SORTANT;
               const accuseStorageKey = `accuses_reception_${courrier.id}`;
               const storedAccuses = isSortant ? JSON.parse(localStorage.getItem(accuseStorageKey) || '[]') : [];
-              
+
               return (
                 <div
                   className={`min-h-[200px] p-4 rounded-lg border-2 border-dashed transition-colors ${
-                    isDraggedOver 
-                      ? 'bg-blue-100 border-blue-400' 
+                    isDraggedOver
+                      ? 'bg-blue-100 border-blue-400'
                       : 'bg-white border-gray-300'
                   }`}
                   onDrop={(e) => handleFileDrop(e, courrier.id)}
@@ -8636,7 +8604,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       </div>
                     </div>
                   )}
-                  
+
                   {df.length === 0 && storedAccuses.length === 0 ? (
                     <div className="text-center py-8">
                       <div className="text-sm text-gray-500 italic mb-4">
@@ -8725,13 +8693,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
   const renderFolderRows = (parentId: string | null, level: number = 0): React.ReactNode => {
     const parentKey = parentId != null ? String(parentId) : null;
     const folders = foldersByParent.get(parentKey) || [];
-    
+
     // En mode arborescence, limiter le nombre de dossiers racines affichés
     let foldersToRender = folders;
     if (folderViewMode === 'arborescence' && parentId === null && folders.length > rootVisibleLimit) {
       foldersToRender = folders.slice(0, rootVisibleLimit);
     }
-    
+
     return foldersToRender.map(folder => {
       const folderKey = folder.id != null ? String(folder.id) : '';
       const isExpanded = expandedFolderIds.has(folderKey);
@@ -8741,12 +8709,12 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
       return (
         <React.Fragment key={folder.id}>
-          <tr className="bg-gradient-to-r from-amber-50/30 via-yellow-50/20 to-amber-50/30 hover:from-amber-50/50 hover:via-yellow-50/40 hover:to-amber-50/50 transition-all duration-200">
+          <tr className="courrier-folder-row bg-gradient-to-r from-amber-50/30 via-yellow-50/20 to-amber-50/30 hover:from-amber-50/50 hover:via-yellow-50/40 hover:to-amber-50/50 transition-all duration-200">
             <td colSpan={4} className="px-6 py-2">
               <div
                 className={`flex items-center justify-between rounded-xl border-2 transition-all duration-300 shadow-sm hover:shadow-md ${
-                  isDraggedOver 
-                    ? 'bg-gradient-to-r from-blue-100 to-cyan-100 border-blue-400 shadow-lg shadow-blue-500/20 scale-[1.01]' 
+                  isDraggedOver
+                    ? 'bg-gradient-to-r from-blue-100 to-cyan-100 border-blue-400 shadow-lg shadow-blue-500/20 scale-[1.01]'
                     : 'bg-white border-amber-200/60 hover:border-amber-300'
                 }`}
                 style={{ paddingLeft: `${level * 18}px` }}
@@ -8819,7 +8787,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 </div>
                 <div className="flex items-center gap-2 px-4">
                   <button
-                    onClick={() => startInlineAddSubfolder(folder.id)}
+                    onClick={() => openFolderModal(folder.id)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 hover:border-amber-300 transition-all duration-200 hover:shadow-sm"
                     title="Créer un sous-dossier"
                   >
@@ -8898,15 +8866,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
   // Afficher le skeleton loader pendant le chargement initial
   if (loadingCourriers && courriers.length === 0) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-6">
-        <CourriersSkeleton />
-      </div>
-    );
+    return <CourriersSkeleton mode={folderViewMode} showCreate={user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN || user?.role === Role.DIRECTEUR_GENERAL}/>;
   }
 
   return (
-    <div className="space-y-6 animate-fadeIn" ref={tableRef}>
+    <div className={`courrier-list-page space-y-4 ${folderViewMode === 'liste' ? 'courrier-inbox-mode' : 'courrier-explorer-mode'}`} ref={tableRef}>
       {/* Inputs fichier toujours dans le DOM pour que .click() fonctionne (import courriers + Parcourir dans le modal expandable) */}
       <input
         ref={importFileInputRef}
@@ -8917,10 +8881,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         disabled={importingFolders}
         aria-label="Importer un fichier CSV, JSON ou Excel"
       />
-      
+
       {/* Header moderne avec statistiques */}
-      <div className="bg-gradient-to-r from-blue-500 via-blue-600 to-cyan-500 rounded-2xl shadow-xl p-6 mb-6">
-        <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="courrier-list-hero bg-gradient-to-r from-sky-600 via-sky-500 to-cyan-500 rounded-2xl shadow-xl p-6 mb-6">
+        <div className="flex items-center justify-between gap-4 mb-4">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
               <FontAwesomeIcon icon={faEnvelope} className="text-white text-2xl" />
@@ -8936,21 +8900,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               </p>
             </div>
           </div>
-          
+
           {/* Recherche et switch à droite */}
           <div className="flex items-center gap-3">
-            {/* Barre de recherche rapide */}
-            <div className="relative min-w-[200px] max-w-[280px]">
-              <FontAwesomeIcon icon={faSearch} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                placeholder="Rechercher..."
-                className="w-full pl-10 pr-4 py-2.5 bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/50"
-              />
-            </div>
-            
+            <button type="button" className={`courrier-search-toggle ${filters.search ? 'has-query' : ''}`} aria-label="Rechercher un courrier" aria-expanded={searchOpen} aria-controls="courrier-search-panel" onClick={() => setSearchOpen(value => !value)}><FontAwesomeIcon icon={faSearch}/><span>Rechercher</span>{filters.search && <span className="courrier-filter-indicator" aria-label="Recherche active"/>}</button>
             {/* Switch Liste/Arborescence */}
             <div className="inline-flex items-center gap-1 rounded-xl border-2 border-white/30 bg-white/20 backdrop-blur-sm p-1">
               <button
@@ -8978,9 +8931,32 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 <span className="hidden sm:inline">Arborescence</span>
               </button>
             </div>
+
           </div>
         </div>
 
+      <div className="courrier-actionbar" role="toolbar" aria-label="Filtres, tri et outils des courriers">
+        <div className="courrier-actionbar-start">{(user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN || user?.role === Role.DIRECTEUR_GENERAL) && <button type="button" className="courrier-create-folder" onClick={() => openFolderModal()}><FontAwesomeIcon icon={faFolder}/><span>Nouveau dossier</span></button>}<button type="button" className={hasActiveFilters ? 'is-filtered' : ''} onClick={() => setShowFiltersDrawer(true)}><FontAwesomeIcon icon={faFilter}/> Filtres et tri{hasActiveFilters && <span className="courrier-filter-indicator" aria-label="Filtres actifs"/>}</button><Link to="/cahier-registre"><FontAwesomeIcon icon={faBook}/><span>Registre</span></Link></div>
+        <div className="courrier-actionbar-end"><button type="button" onClick={() => {setExportSettings(exportSettingsService.getDefaultSettings());setShowExportSettings(true);}}><FontAwesomeIcon icon={faDownload}/><span>Exporter</span></button><button type="button" onClick={() => setShowActionsDrawer(true)} aria-label="Autres outils des courriers"><FontAwesomeIcon icon={faBars}/><span>Outils</span></button></div>
+      </div>
+        <div id="courrier-search-panel" className={`courrier-search-collapse ${searchOpen ? 'is-open' : ''}`} aria-hidden={!searchOpen}><div>            {/* Barre de recherche rapide */}
+            <div className="courrier-search-field relative">
+              <FontAwesomeIcon icon={faSearch} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                ref={searchInputRef}
+                tabIndex={searchOpen ? 0 : -1}
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                placeholder="Numéro, objet, correspondant…"
+                aria-label="Rechercher dans les courriers"
+                className="w-full pl-10 pr-4 py-2.5 bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/50"
+              />
+              {filters.search && <button type="button" tabIndex={searchOpen ? 0 : -1} aria-label="Effacer la recherche" onClick={() => setFilters(previous => ({...previous,search:''}))}><FontAwesomeIcon icon={faTimes}/></button>}
+            </div>
+
+</div></div>
+        <details className="courrier-stats-disclosure"><summary><span><FontAwesomeIcon icon={faEnvelope} /> Statistiques</span><span>{stats.total} courriers · {stats.urgent} urgents <FontAwesomeIcon icon={faChevronDown}/></span></summary><div className="courrier-disclosed-content">
         {/* En-tête des statistiques avec sélecteur de vue */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-white tracking-tight">Statistiques des courriers</h2>
@@ -8989,7 +8965,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
         {/* Affichage conditionnel des statistiques */}
         {statsView === 'charts' && (
-          <ListeCourrierStats 
+          <ListeCourrierStats
             stats={{
               total: stats.total,
               byStatut: stats.byStatut,
@@ -9004,9 +8980,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             }}
           />
         )}
-        
+
         {statsView === 'cards' && (
-          <ListeCourrierStatsCards 
+          <ListeCourrierStatsCards
             stats={{
               total: stats.total,
               byStatut: stats.byStatut,
@@ -9021,7 +8997,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             }}
           />
         )}
-        
+
         {statsView === 'none' && (
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-6 text-center">
             <div className="inline-flex items-center gap-3 text-white/70">
@@ -9033,199 +9009,14 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             </p>
           </div>
         )}
+        </div></details>
       </div>
 
-      {/* Affichage en haut — z-50 pour que les dropdowns passent au-dessus du bloc titre "Courriers" */}
-      <div className="relative z-50 bg-white rounded-2xl shadow-lg border border-slate-200/80 p-4 sm:p-5">
-        {/* Bouton Menu / Options visible uniquement sur petits écrans — ouvre le drawer Actions */}
-        <div className="flex lg:hidden items-center justify-between gap-3">
-          <span className="text-gray-600 font-medium truncate">Courriers</span>
-          <button
-            type="button"
-            onClick={() => setShowActionsDrawer(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-medium shadow-md hover:bg-blue-700 transition-colors"
-            aria-label="Ouvrir le menu des actions"
-          >
-            <FontAwesomeIcon icon={faBars} className="w-4 h-4" />
-            <span>Menu</span>
-          </button>
-        </div>
-
-        {/* Barre d'outils complète — visible uniquement sur lg et plus */}
-        <div className="hidden lg:flex items-center justify-between gap-3 flex-nowrap overflow-visible min-w-0">
-          {/* Zone de boutons à gauche */}
-          <div className="flex items-center gap-3 flex-nowrap flex-shrink-0">
-            {/* Bouton Filtres */}
-            <button
-              onClick={() => {
-                setShowFiltersDrawer(true);
-                scrollToTop();
-              }}
-              className={`px-4 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
-                hasActiveFilters
-                  ? 'bg-amber-400 text-amber-900 shadow-lg'
-                  : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
-              }`}
-            >
-              <FontAwesomeIcon icon={faFilter} />
-              <span className="hidden sm:inline">Filtres</span>
-              {hasActiveFilters && (
-                <span className="w-5 h-5 rounded-full bg-amber-900 text-amber-100 text-xs flex items-center justify-center">!</span>
-              )}
-            </button>
-
-            {/* Bouton Registre */}
-            <Link
-              to="/cahier-registre"
-              className="px-4 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 whitespace-nowrap bg-green-600 text-white hover:bg-green-700 shadow-md"
-            >
-              <FontAwesomeIcon icon={faBook} />
-              <span className="hidden sm:inline">Cahier registre</span>
-            </Link>
-          </div>
-
-          {/* Autres boutons à droite */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-              <div className="relative import-dropdown-container">
-                <button
-                  onClick={() => {
-                    if (!isFormConfigured) {
-                      showAlert('Configurez le formulaire courrier (Paramètres > Formulaire courriers) pour activer l\'import et le téléchargement du modèle.', 'warning', 'Formulaire non configuré');
-                      return;
-                    }
-                    setShowImportDropdown(!showImportDropdown);
-                  }}
-                  disabled={importingFolders || !isFormConfigured}
-                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-200 flex items-center gap-1.5 border border-transparent ${!isFormConfigured ? 'text-gray-400 cursor-not-allowed opacity-70' : 'text-blue-600 hover:bg-white hover:text-blue-700 hover:border-blue-200 hover:shadow-md cursor-pointer'}`}
-                  title={!isFormConfigured ? 'Configurez le formulaire courrier (Paramètres > Formulaire courriers) pour activer l\'import et le modèle' : 'Importer des courriers ou télécharger un modèle'}
-                >
-                  <FontAwesomeIcon icon={importingFolders ? faSync : faFileImport} className={`w-3 h-3 ${importingFolders ? 'animate-spin' : ''}`} />
-                  <span className="hidden sm:inline">{importingFolders && importProgress ? importProgress.message : 'Importer / Modèle'}</span>
-                  <FontAwesomeIcon icon={faChevronDown} className="w-2 h-2 ml-1" />
-                </button>
-                {showImportDropdown && !importingFolders && (
-                  <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-[100] min-w-[220px] py-1">
-                    <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Importer courriers</p>
-                    <button
-                      onClick={() => { triggerImport('csv'); setShowImportDropdown(false); }}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faFileAlt} className="w-3 h-3 text-gray-500" />
-                      <span>CSV (UTF-8)</span>
-                    </button>
-                    <button
-                      onClick={() => { triggerImport('json'); setShowImportDropdown(false); }}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faFileCode} className="w-3 h-3 text-gray-500" />
-                      <span>JSON</span>
-                    </button>
-                    <button
-                      onClick={() => { triggerImport('excel'); setShowImportDropdown(false); }}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faFileExcel} className="w-3 h-3 text-green-600" />
-                      <span>Excel (.xlsx, .xls)</span>
-                    </button>
-                    <div className="border-t border-gray-200 my-1" />
-                    <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Télécharger modèle</p>
-                    <button
-                      onClick={() => {
-                        if (!isFormConfigured) return;
-                        const csvContent = getCsvTemplateContent();
-                        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = 'modele_import_courriers.csv';
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
-                        setShowImportDropdown(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faFileAlt} className="w-3 h-3 text-gray-500" />
-                      <span>Modèle CSV (UTF-8)</span>
-                    </button>
-                    <button
-                      onClick={() => { downloadExcelTemplate(); setShowImportDropdown(false); }}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faFileExcel} className="w-3 h-3 text-green-600" />
-                      <span>Modèle Excel (.xlsx)</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            {/* Dropdown Nouveau / Exporter à droite au fond */}
-            <details className="relative">
-              <summary className="list-none [&::-webkit-details-marker]:hidden">
-                <span className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:from-blue-700 hover:to-blue-800 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer">
-                  <FontAwesomeIcon icon={faPlus} />
-                  <span className="hidden sm:inline">Nouveau</span>
-                  <FontAwesomeIcon icon={faChevronDown} className="text-xs opacity-80" />
-                </span>
-              </summary>
-              <div className="absolute right-0 mt-2 w-56 rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden z-[100]">
-                {(user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN || user?.role === Role.DIRECTEUR_GENERAL) && (
-                  <>
-                    <Link
-                      to="/enregistrer"
-                      className="w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faEnvelope} className="text-blue-500" />
-                      Nouveau courrier
-                    </Link>
-                    <button
-                      onClick={() => openFolderModal()}
-                      className="w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                    >
-                      <FontAwesomeIcon icon={faFolder} className="text-amber-500" />
-                      Nouveau dossier
-                    </button>
-                    <div className="border-t border-gray-200 my-1" />
-                  </>
-                )}
-                <button
-                  onClick={() => {
-                    setExportSettings(exportSettingsService.getDefaultSettings());
-                    setShowExportSettings(true);
-                  }}
-                  className="w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                >
-                  <FontAwesomeIcon icon={faPrint} className="text-green-500" />
-                  Exporter
-                </button>
-              </div>
-            </details>
-            </div>
-          </div>
-        </div>
+      {(user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN || user?.role === Role.DIRECTEUR_GENERAL) && <Link to="/enregistrer" className="courrier-new-floating" aria-label="Nouveau courrier"><FontAwesomeIcon icon={faPlus}/><span>Nouveau courrier</span></Link>}
 
       {/* Drawer Actions (responsive) — recherche, filtres, liste/arbo, importer, modèle, nouveau */}
-      {showActionsDrawer && (
-        <ModalPortal>
-          <div className="fixed inset-0 z-[50000]">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowActionsDrawer(false)} />
-            <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col animate-slideInRight z-[50010]">
-              <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
-                    <FontAwesomeIcon icon={faBars} />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-gray-900">Actions</h2>
-                    <p className="text-xs text-gray-500">Recherche, filtres et actions</p>
-                  </div>
-                </div>
-                <button onClick={() => setShowActionsDrawer(false)} className="w-10 h-10 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center transition-colors" aria-label="Fermer">
-                  <FontAwesomeIcon icon={faTimes} />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      {showActionsDrawer && <CourrierDrawer title="Outils des courriers" description="Importez, exportez et organisez vos courriers." onClose={() => setShowActionsDrawer(false)}>
+<div className="courrier-drawer-body flex-1 overflow-y-auto p-6 space-y-4">
                 {/* Recherche */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2"><FontAwesomeIcon icon={faSearch} className="mr-2 text-gray-400" />Rechercher</label>
@@ -9348,212 +9139,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
-        </ModalPortal>
-      )}
+<footer className="courrier-drawer-footer"><button type="button" className="drawer-button primary" onClick={() => setShowActionsDrawer(false)}>Terminer</button></footer>      </CourrierDrawer>}
 
-      {/* Drawer Filtres (responsive) — filtres avancés */}
-      {showFiltersDrawer && (
-        <ModalPortal>
-          <div className="fixed inset-0 z-[50000]">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowFiltersDrawer(false)} />
-            <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col animate-slideInRight z-[50010]">
-              <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
-                    <FontAwesomeIcon icon={faFilter} />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-gray-900">Filtres avancés</h2>
-                    <p className="text-xs text-gray-500">Filtrer les courriers</p>
-                  </div>
-                </div>
-                <button onClick={() => setShowFiltersDrawer(false)} className="w-10 h-10 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center transition-colors" aria-label="Fermer">
-                  <FontAwesomeIcon icon={faTimes} />
-                </button>
-              </div>
 
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {/* Sens */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Sens</label>
-                  <select
-                    value={filters.sens}
-                    onChange={(e) => setFilters({ ...filters, sens: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    <option value="">Tous</option>
-                    <option value={SensCourrier.ENTRANT}>Entrants</option>
-                    <option value={SensCourrier.SORTANT}>Sortants</option>
-                  </select>
-                </div>
-
-                {/* Type */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Type</label>
-                  <select
-                    value={filters.type}
-                    onChange={(e) => setFilters({ ...filters, type: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    <option value="">Tous</option>
-                    <option value={TypeCourrier.INTERNE}>Interne</option>
-                    <option value={TypeCourrier.EXTERNE}>Externe</option>
-                  </select>
-                </div>
-
-                {/* Statut */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Statut</label>
-                  <select
-                    value={filters.statut}
-                    onChange={(e) => setFilters({ ...filters, statut: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    <option value="">Tous</option>
-                    <option value={StatutCourrier.ENREGISTRE}>Enregistré</option>
-                    <option value={StatutCourrier.EN_ATTENTE_DG}>En attente DG</option>
-                    <option value={StatutCourrier.ORIENTE_DG}>Orienté DG</option>
-                    <option value={StatutCourrier.ORIENTE_DIRECTEUR}>Orienté Directeur</option>
-                    <option value={StatutCourrier.EN_TRAITEMENT}>En traitement</option>
-                    <option value={StatutCourrier.ASSIGNE}>Assigné</option>
-                    <option value={StatutCourrier.TRAITE}>Traité</option>
-                    <option value={StatutCourrier.ARCHIVE}>Archivé</option>
-                  </select>
-                </div>
-
-                {/* Priorité */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Priorité</label>
-                  <select
-                    value={filters.priorite}
-                    onChange={(e) => setFilters({ ...filters, priorite: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    <option value="">Toutes</option>
-                    <option value={Priorite.BASSE}>Basse</option>
-                    <option value={Priorite.NORMALE}>Normale</option>
-                    <option value={Priorite.HAUTE}>Haute</option>
-                    <option value={Priorite.URGENTE}>Urgente</option>
-                  </select>
-                </div>
-
-                {/* Direction */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Direction</label>
-                  <select
-                    value={filters.direction}
-                    onChange={(e) => setFilters({ ...filters, direction: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    <option value="">Toutes</option>
-                    {entiteOrganisationnelleService.getDirectionsForFilters().map(dir => (
-                      <option key={dir.id} value={dir.id}>{dir.nom}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Service */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Service</label>
-                  <select
-                    value={filters.service}
-                    onChange={(e) => setFilters({ ...filters, service: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    <option value="">Tous</option>
-                    {entiteOrganisationnelleService.getAllEntities()
-                      .filter(e => e.type === 'service')
-                      .map(svc => (
-                        <option key={svc.id} value={svc.id}>{svc.nom}</option>
-                      ))}
-                  </select>
-                </div>
-
-                {/* Dates */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Date de début</label>
-                  <input
-                    type="date"
-                    value={filters.dateDebut}
-                    onChange={(e) => setFilters({ ...filters, dateDebut: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Date de fin</label>
-                  <input
-                    type="date"
-                    value={filters.dateFin}
-                    onChange={(e) => setFilters({ ...filters, dateFin: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500"
-                  />
-                </div>
-
-                {/* Filtres supplémentaires */}
-                <div className="space-y-2 pt-4 border-t border-gray-100">
-                  <label className="flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={filters.mesAssignations}
-                      onChange={(e) => setFilters({ ...filters, mesAssignations: e.target.checked })}
-                      className="mr-3 w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Mes assignations uniquement</span>
-                  </label>
-
-                  <label className="flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={filters.nonClassifies}
-                      onChange={(e) => setFilters({ ...filters, nonClassifies: e.target.checked })}
-                      className="mr-3 w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Non classés uniquement</span>
-                  </label>
-                </div>
-
-                {/* Boutons d'action */}
-                <div className="pt-4 border-t border-gray-100 flex gap-2">
-                  <button
-                    onClick={() => {
-                      setFilters({
-                        statut: '',
-                        type: '',
-                        sens: '',
-                        search: '',
-                        priorite: '',
-                        direction: '',
-                        service: '',
-                        sousService: '',
-                        dateDebut: '',
-                        dateFin: '',
-                        categorie: '',
-                        mesAssignations: false,
-                        nonClassifies: false
-                      });
-                      scrollToTop();
-                    }}
-                    className="flex-1 px-4 py-3 rounded-xl bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition-all"
-                  >
-                    Réinitialiser
-                  </button>
-                  <button
-                    onClick={() => setShowFiltersDrawer(false)}
-                    className="flex-1 px-4 py-3 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-all"
-                  >
-                    Appliquer
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </ModalPortal>
-      )}
-
-        {/* Indicateurs de filtres actifs */}
         {hasActiveFilters && (
           <div className="px-4 pb-4 flex items-center gap-2 flex-wrap">
             <span className="text-xs text-gray-500 flex items-center gap-1">
@@ -9636,143 +9224,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         </div>
           )}
 
-      {/* Barre de contrôle de tri et d'organisation - Interface professionnelle */}
-      <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          {/* Section Organiser par */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
-                <FontAwesomeIcon icon={faLayerGroup} className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Organiser par</div>
-                <div className="text-sm text-gray-700 font-medium mt-0.5">Regrouper les courriers</div>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {groupByOptions.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setGroupBy(option.value as typeof groupBy)}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
-                    groupBy === option.value
-                      ? 'bg-blue-500 text-white shadow-md'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Séparateur vertical */}
-          <div className="hidden sm:block w-px h-12 bg-gray-200 mx-2" />
-
-          {/* Section Trier par */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600">
-                <FontAwesomeIcon icon={faSortAmountDown} className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Trier par</div>
-                <div className="text-sm text-gray-700 font-medium mt-0.5">Ordonner les résultats</div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Sélecteur de champ de tri */}
-              <div className="relative flex-1 min-w-[180px]">
-                <select
-                  value={sortBy}
-                  onChange={(e) => handleSort(e.target.value as typeof sortBy)}
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none pr-10"
-                >
-                  <option value="dateEnregistrement">Date d'enregistrement</option>
-                  <option value="dateReception">Date de réception</option>
-                  <option value="numero">Numéro</option>
-                  <option value="objet">Objet</option>
-                  <option value="expediteur">Expéditeur</option>
-                  <option value="priorite">Priorité</option>
-                  <option value="statut">Statut</option>
-                </select>
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
-                  <FontAwesomeIcon icon={faChevronDown} className="text-gray-400 w-3 h-3" />
-                </div>
-              </div>
-
-              {/* Boutons d'ordre de tri */}
-              <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-                <button
-                  onClick={() => setSortOrder('desc')}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-                    sortOrder === 'desc'
-                      ? 'bg-blue-500 text-white shadow-md'
-                      : 'bg-white text-gray-700 hover:bg-gray-50'
-                  }`}
-                  title="Tri décroissant"
-                >
-                  <FontAwesomeIcon icon={faSortDown} />
-                  <span className="hidden sm:inline">Décroissant</span>
-                </button>
-                <button
-                  onClick={() => setSortOrder('asc')}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-                    sortOrder === 'asc'
-                      ? 'bg-blue-500 text-white shadow-md'
-                      : 'bg-white text-gray-700 hover:bg-gray-50'
-                  }`}
-                  title="Tri croissant"
-                >
-                  <FontAwesomeIcon icon={faSortUp} />
-                  <span className="hidden sm:inline">Croissant</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Indicateur d'état actuel */}
-        <div className="mt-4 pt-4 border-t border-gray-100">
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <FontAwesomeIcon icon={faInfoCircle} className="text-blue-500 w-4 h-4" />
-            <span>
-              Affichage <span className="font-semibold text-gray-800">{groupByOptions.find(o => o.value === groupBy)?.label || 'Non groupé'}</span> • 
-              Tri par <span className="font-semibold text-gray-800">{sortBy === 'dateEnregistrement' ? 'Date d\'enregistrement' : 
-                sortBy === 'dateReception' ? 'Date de réception' : 
-                sortBy === 'numero' ? 'Numéro' : 
-                sortBy === 'objet' ? 'Objet' : 
-                sortBy === 'expediteur' ? 'Expéditeur' : 
-                sortBy === 'priorite' ? 'Priorité' : 'Statut'}</span> • 
-              Ordre <span className="font-semibold text-gray-800">{sortOrder === 'desc' ? 'décroissant' : 'croissant'}</span>
-            </span>
-          </div>
-        </div>
-      </div>
-
       {/* Drawer des filtres */}
-      {showFiltersDrawer && (
-        <ModalPortal>
-          <div className="fixed inset-0 z-[50000]">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowFiltersDrawer(false)} />
-            <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col animate-slideInRight z-[50010]">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
-                  <FontAwesomeIcon icon={faFilter} />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900">Filtres avancés</h2>
-                  <p className="text-xs text-gray-500">Affinez votre recherche</p>
-                </div>
-              </div>
-              <button onClick={() => setShowFiltersDrawer(false)} className="w-10 h-10 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center transition-colors">
-                <FontAwesomeIcon icon={faTimes} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      {showFiltersDrawer && <CourrierDrawer title="Filtres et tri" description="Affinez la liste et choisissez son ordre de présentation." onClose={() => setShowFiltersDrawer(false)}>
+<div className="courrier-drawer-body flex-1 overflow-y-auto p-6 space-y-6">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2"><FontAwesomeIcon icon={faSearch} className="mr-2 text-gray-400" />Recherche</label>
                 <input type="text" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} placeholder="Numéro, objet, expéditeur..." className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all" />
@@ -9940,7 +9394,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   <option value="dateReception">Date de réception</option>
                   <option value="numero">Numéro</option>
                   <option value="objet">Objet</option>
-                  <option value="expediteur">Expéditeur</option>
+                  <option value="expediteur">Expéditeur</option><option value="priorite">Priorité</option><option value="statut">Statut</option>
                 </select>
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => setSortOrder('desc')} className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${sortOrder === 'desc' ? 'bg-blue-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
@@ -9953,7 +9407,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               </div>
             </div>
 
-            <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50">
+            <div className="courrier-drawer-footer flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50">
               <button
                 onClick={() => {
                   setFilters({ statut: '', type: '', sens: '', search: '', priorite: '', direction: '', service: '', sousService: '', dateDebut: '', dateFin: '', categorie: '', mesAssignations: false, nonClassifies: false });
@@ -9968,59 +9422,14 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 Appliquer
               </button>
             </div>
-            </div>
-          </div>
-        </ModalPortal>
-      )}
+      </CourrierDrawer>}
 
-      
+
+
 
       {/* Tableau liste des courriers — présentation améliorée */}
       <div ref={courrierListRef} className="bg-white rounded-2xl shadow-xl shadow-slate-200/40 border border-slate-200/80 overflow-hidden">
-        {folderViewMode === 'liste' && (
-          <div className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200/80">
-            <span className="text-sm text-slate-600">
-              <strong className="text-slate-800">Affichage en liste</strong> — Les catégories ne sont pas visibles. Passez en <strong>Arborescence</strong> pour afficher les catégories et classer vos courriers.
-            </span>
-            <button
-              type="button"
-              onClick={() => setFolderViewMode('arborescence')}
-              className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-all shadow-sm hover:shadow"
-            >
-              <FontAwesomeIcon icon={faFolderOpen} className="w-4 h-4" />
-              Afficher les catégories
-            </button>
-          </div>
-        )}
-        {(user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN) && selectedCourriers.size === 0 && (
-          <div className="mx-4 mt-4 mb-3 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50/50 to-amber-50 border-2 border-amber-200/60 shadow-sm hover:shadow-md transition-all duration-300">
-            <div className="px-5 py-4 flex items-start gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/30">
-                <FontAwesomeIcon icon={faArrowRight} className="w-5 h-5 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-base font-bold text-amber-900 mb-2 flex items-center gap-2">
-                  <span>Guide d'orientation des courriers</span>
-                  <span className="px-2 py-0.5 bg-amber-200 text-amber-800 text-xs font-semibold rounded-full">Info</span>
-                </h4>
-                <div className="space-y-2 text-sm text-amber-800">
-                  <p className="leading-relaxed">
-                    <strong className="text-amber-900">📋 Méthode 1 :</strong> Cochez un ou plusieurs courriers pour afficher les boutons d'orientation en haut de la liste.
-                  </p>
-                  <p className="leading-relaxed">
-                    <strong className="text-amber-900">⋮ Méthode 2 :</strong> Cliquez sur les trois points verticaux d'une ligne et choisissez l'option d'orientation.
-                  </p>
-                  <div className="mt-3 pt-3 border-t border-amber-200/60">
-                    <p className="text-xs text-amber-700 leading-relaxed">
-                      <FontAwesomeIcon icon={faInfoCircle} className="mr-1.5 text-amber-600" />
-                      <strong>Rôles :</strong> Les secrétaires de direction orientent vers leur directeur de direction • Le secrétariat DG oriente vers le Directeur Général
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {(user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN) && selectedCourriers.size === 0 && <details className="courrier-help"><summary><FontAwesomeIcon icon={faInfoCircle}/> Comment orienter un courrier ?</summary><p>Cochez les courriers concernés pour afficher les actions groupées, ou ouvrez le menu ⋮ d’une ligne pour orienter un courrier.</p><p>Les actions proposées dépendent de votre rôle et de votre direction.</p></details>}
         {/* Popout de chargement pour les opérations CRUD */}
         {(loadingOperations.insert || loadingOperations.delete || loadingOperations.update) && (
           <div className="relative">
@@ -10030,13 +9439,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 <div className="relative w-12 h-12 flex-shrink-0">
                   <div className="absolute inset-0 rounded-full bg-blue-100 animate-ping" />
                   <div className="absolute inset-2 rounded-full bg-blue-500 flex items-center justify-center">
-                    <FontAwesomeIcon 
-                      icon={faSpinner} 
-                      className="w-5 h-5 text-white animate-spin" 
+                    <FontAwesomeIcon
+                      icon={faSpinner}
+                      className="w-5 h-5 text-white animate-spin"
                     />
                   </div>
                 </div>
-                
+
                 {/* Contenu */}
                 <div className="flex-1 min-w-0">
                   <p className="text-lg font-semibold text-gray-900 mb-1">
@@ -10048,7 +9457,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       </>
                     )}
                   </p>
-                  
+
                   {/* Barre de progression */}
                   {loadingOperations.progress !== undefined && (
                     <div className="mb-2">
@@ -10057,7 +9466,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         <span className="font-medium">{loadingOperations.progress}%</span>
                       </div>
                       <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div 
+                        <div
                           className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300 ease-out relative"
                           style={{ width: `${loadingOperations.progress}%` }}
                         >
@@ -10066,7 +9475,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       </div>
                     </div>
                   )}
-                  
+
                   {/* Message d'état */}
                   <p className="text-sm">
                     {loadingOperations.completed ? (
@@ -10086,7 +9495,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     )}
                   </p>
                 </div>
-                
+
                 {/* Bouton de fermeture (optionnel) */}
                 {loadingOperations.completed && (
                   <button
@@ -10098,7 +9507,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   </button>
                 )}
               </div>
-              
+
               {/* Animation CSS */}
               <style>{`
                 @keyframes slideDown {
@@ -10111,7 +9520,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     transform: translateY(0);
                   }
                 }
-                
+
                 @keyframes shimmer {
                   0% {
                     transform: translateX(-100%);
@@ -10120,15 +9529,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     transform: translateX(100%);
                   }
                 }
-                
+
                 .animate-slideDown {
                   animation: slideDown 0.3s ease-out;
                 }
-                
+
                 .animate-shimmer {
                   animation: shimmer 1.5s infinite;
                 }
-                
+
                 .skeleton {
                   background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
                   background-size: 200% 100%;
@@ -10139,13 +9548,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="min-w-full table-fixed">
+          <table className="courrier-table min-w-full table-fixed">
             <thead className="sticky top-0 z-10">
               <tr className="bg-gradient-to-r from-blue-600 via-blue-700 to-cyan-600 border-b-4 border-blue-400/40 shadow-lg">
                 <th className="px-4 py-4 text-left w-12">
                   {/* Checkbox dans colonne Actions */}
                 </th>
-                <th 
+                <th
                   className="px-6 py-4 text-left cursor-pointer group transition-all hover:bg-white/10 active:bg-white/20"
                   onClick={() => handleSort('numero')}
                 >
@@ -10154,18 +9563,18 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       <FontAwesomeIcon icon={faHashtag} className="text-sm text-white" />
                     </div>
                     <div className="flex-1">
-                      <span className="text-sm font-bold text-white uppercase tracking-wider block">Numéro</span>
-                      <span className="text-xs text-blue-100 font-normal">Référence unique</span>
+                      <span className="text-sm font-bold text-white uppercase tracking-wider block">Courrier</span>
+                      <span className="text-xs text-blue-100 font-normal">Référence et objet</span>
                     </div>
                     <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${sortBy === 'numero' ? 'bg-white/30 text-white scale-110' : 'text-blue-200 group-hover:text-white group-hover:bg-white/10'}`}>
-                      <FontAwesomeIcon 
-                        icon={sortBy === 'numero' ? (sortOrder === 'asc' ? faSortUp : faSortDown) : faSort} 
+                      <FontAwesomeIcon
+                        icon={sortBy === 'numero' ? (sortOrder === 'asc' ? faSortUp : faSortDown) : faSort}
                         className="text-xs"
                       />
                     </div>
                   </div>
                 </th>
-                <th 
+                <th
                   className="px-6 py-4 text-left cursor-pointer group transition-all hover:bg-white/10 active:bg-white/20"
                   onClick={() => handleSort('expediteur')}
                 >
@@ -10175,11 +9584,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     </div>
                     <div className="flex-1">
                       <span className="text-sm font-bold text-white uppercase tracking-wider block">Expéditeur / Destinataire</span>
-                      <span className="text-xs text-blue-100 font-normal">Parties concernées</span>
+                      <span className="text-xs text-blue-100 font-normal">Correspondants</span>
                     </div>
                     <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${sortBy === 'expediteur' ? 'bg-white/30 text-white scale-110' : 'text-blue-200 group-hover:text-white group-hover:bg-white/10'}`}>
-                      <FontAwesomeIcon 
-                        icon={sortBy === 'expediteur' ? (sortOrder === 'asc' ? faSortUp : faSortDown) : faSort} 
+                      <FontAwesomeIcon
+                        icon={sortBy === 'expediteur' ? (sortOrder === 'asc' ? faSortUp : faSortDown) : faSort}
                         className="text-xs"
                       />
                     </div>
@@ -10329,7 +9738,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                               let errorCount = 0;
                               const count = selectedCourriers.size;
                               const idsToDelete = Array.from(selectedCourriers);
-                              
+
                               // Supprimer tous les courriers en parallèle pour plus d'efficacité
                               console.log(`Début de la suppression groupée de ${count} courrier(s)...`);
                               const deletePromises = idsToDelete.map(async (id) => {
@@ -10348,7 +9757,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                                   return { id, success: false, error: error?.message || 'Erreur inconnue' };
                                 }
                               });
-                              
+
                               const results = await Promise.all(deletePromises);
                               results.forEach(result => {
                                 if (result.success) {
@@ -10358,9 +9767,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                                   console.error(`Échec de suppression pour le courrier ${result.id}:`, result.error);
                                 }
                               });
-                              
+
                               console.log(`Résultats de la suppression: ${successCount} succès, ${errorCount} erreurs`);
-                              
+
                               // Retirer les courriers supprimés du mapping des catégories
                               if (successCount > 0 && user?.id) {
                                 const deletedIds = results.filter(r => r.success).map(r => r.id);
@@ -10378,10 +9787,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                                   return next;
                                 });
                               }
-                              
+
                               // Attendre un court délai pour que l'API traite les suppressions
                               await new Promise(resolve => setTimeout(resolve, 500));
-                              
+
                               // Recharger les courriers depuis l'API pour s'assurer que la suppression est bien synchronisée
                               console.log('Rechargement des courriers depuis l\'API...');
                               try {
@@ -10392,10 +9801,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                                 // Forcer un rechargement même en cas d'erreur
                                 await loadCourriers();
                               }
-                              
+
                               // Retirer les courriers supprimés de la sélection
                               setSelectedCourriers(new Set());
-                              
+
                               setLoadingOperations(prev => ({ ...prev, delete: false, operationName: undefined }));
 
                               if (errorCount === 0) {
@@ -10427,7 +9836,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               {currentCourriers.length === 0 && folderViewMode === 'liste' && (
                 <tr>
                   <td colSpan={4} className="px-6 py-12">
-                    <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-slate-200 bg-gradient-to-br from-slate-50/50 via-white to-slate-50/30 py-16 px-8 max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
+                    <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-slate-200 bg-gradient-to-br from-slate-50/50 via-white to-slate-50/30 py-16 px-8 courrier-empty-state max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
                       <div className="relative">
                         <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center shadow-lg shadow-slate-500/20">
                           <FontAwesomeIcon icon={faEnvelopeOpen} className="w-10 h-10 text-white" />
@@ -10546,8 +9955,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   )}
                   {renderFolderRows(null, 0)}
                   {/* Bouton "Voir plus" pour les dossiers racines */}
-                  {folderViewMode === 'arborescence' && 
-                   courrierFolders.length > rootVisibleLimit && (
+                  {folderViewMode === 'arborescence' &&
+                   courrierFolders.filter(f => !f.parentId).length > rootVisibleLimit && (
                     <tr>
                       <td colSpan={4} className="px-6 py-4">
                         <div className="flex justify-center">
@@ -10566,7 +9975,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                             ) : (
                               <>
                                 <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
-                                <span>Voir plus de dossiers ({courrierFolders.length - rootVisibleLimit} restants)</span>
+                                <span>Voir plus de dossiers ({courrierFolders.filter(f => !f.parentId).length - rootVisibleLimit} restants)</span>
                               </>
                             )}
                           </button>
@@ -10574,41 +9983,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       </td>
                     </tr>
                   )}
-                  {courrierFolders.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12">
-                        <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-blue-200 bg-gradient-to-br from-blue-50/50 via-white to-cyan-50/30 py-16 px-8 max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
-                          <div className="relative">
-                            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/30 animate-pulse">
-                              <FontAwesomeIcon icon={faFolder} className="w-10 h-10 text-white" />
-                            </div>
-                            <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center shadow-md">
-                              <FontAwesomeIcon icon={faPlus} className="w-3 h-3 text-white" />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <p className="text-xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
-                              Aucune catégorie pour le moment
-                            </p>
-                            <p className="text-sm text-slate-600 leading-relaxed max-w-sm">
-                              Organisez vos courriers en créant des catégories thématiques pour une meilleure gestion
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => setShowFolderModal(true)}
-                            className="mt-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-semibold shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 transition-all duration-300 flex items-center gap-2"
-                          >
-                            <FontAwesomeIcon icon={faPlus} className="w-4 h-4" />
-                            Créer ma première catégorie
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
+                  {courrierFolders.length === 0 && filteredCourriers.length > 0 && <tr><td colSpan={4} className="px-5 py-3"><div className="courrier-folder-hint"><span>Classez vos courriers dans des dossiers.</span><button type="button" onClick={() => openFolderModal()}><FontAwesomeIcon icon={faPlus}/> Créer un dossier</button></div></td></tr>}
                   {filteredCourriers.length === 0 && (
                     <tr>
                       <td colSpan={4} className="px-6 py-12">
-                        <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-slate-200 bg-gradient-to-br from-slate-50/50 via-white to-slate-50/30 py-16 px-8 max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
+                        <div className="flex flex-col items-center justify-center text-center gap-6 rounded-3xl border-2 border-dashed border-slate-200 bg-gradient-to-br from-slate-50/50 via-white to-slate-50/30 py-16 px-8 courrier-empty-state max-w-lg mx-auto shadow-sm hover:shadow-md transition-all duration-300">
                           <div className="relative">
                             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center shadow-lg shadow-slate-500/20">
                               <FontAwesomeIcon icon={faEnvelopeOpen} className="w-10 h-10 text-white" />
@@ -10661,7 +10040,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       </td>
                     </tr>
                   )}
-                  <tr className="bg-surface-50/70">
+                  <tr className="courrier-root-folder bg-surface-50/70">
                     <td colSpan={4} className="px-6 py-2">
                       <div
                         className={`flex items-center justify-between rounded-lg border transition-colors ${
@@ -10705,7 +10084,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                             {rootCourriers.length} courrier{rootCourriers.length > 1 ? 's' : ''}
                           </span>
                         </div>
-                        <div className="text-xs text-surface-400 px-3">Déposez ici pour retirer de la catégorie</div>
+                        <div className="courrier-drop-hint text-xs text-surface-400 px-3">Déposez ici pour retirer de la catégorie</div>
                       </div>
                     </td>
                   </tr>
@@ -10758,12 +10137,12 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     )}
                     {!isCollapsed && group.items.map((courrier, index) => (
                       <React.Fragment key={courrier.id}>
-                  <tr 
+                  <tr
                     className={`group transition-colors duration-150 cursor-pointer ${
                       index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'
                     } ${
-                      selectedCourriers.has(courrier.id) 
-                        ? 'bg-blue-50 border-l-4 border-l-blue-500 hover:bg-blue-50/90' 
+                      selectedCourriers.has(courrier.id)
+                        ? 'bg-blue-50 border-l-4 border-l-blue-500 hover:bg-blue-50/90'
                         : 'border-l-4 border-l-transparent hover:bg-blue-50/50'
                     }`}
                     style={{ animationDelay: `${index * 30}ms` }}
@@ -10792,7 +10171,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   <td className="px-4 py-4 whitespace-nowrap">
                     {/* Checkbox déplacée à droite dans Actions */}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-6 py-4 courrier-subject-cell">
+        {rowDetails.has(courrier.id) ? <div className="courrier-expanded-details"><div className="courrier-mobile-correspondents"><CourrierCorrespondents courrier={courrier}/></div><button type="button" className="courrier-close-details" onClick={e => { e.stopPropagation(); toggleRowDetails(courrier.id); }}>Réduire les détails ↑</button>
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-50 transition-colors">
@@ -10801,15 +10181,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                             if (mainFile) {
                               const extension = mainFile.split('.').pop()?.toLowerCase();
                               return (
-                                <FontAwesomeIcon 
-                                  icon={getFileIcon(extension, mainFile)} 
+                                <FontAwesomeIcon
+                                  icon={getFileIcon(extension, mainFile)}
                                   className={`text-lg ${getFileIconColor(extension, mainFile)}`}
                                   title={`Document: ${mainFile}`}
                                 />
                               );
                             }
                             return (
-                              <FontAwesomeIcon 
+                              <FontAwesomeIcon
                                 icon={faPaperclip}
                                 className="text-slate-300 text-lg"
                                 title="Aucun document attaché"
@@ -10819,7 +10199,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-slate-900">{courrier.numero}</span>
+                            <span className="text-sm font-bold text-slate-900">{courrierReferences(courrier)}</span>
                             {isNouveauCourrier(courrier.createdAt) && (
                               <span
                                 className="px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wide flex-shrink-0"
@@ -10847,8 +10227,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 transition-all flex-shrink-0"
                               title={expandedCourriers.has(courrier.id) ? "Masquer les fichiers" : "Visualiser les fichiers"}
                             >
-                              <FontAwesomeIcon 
-                                icon={expandedCourriers.has(courrier.id) ? faFolderOpen : faFolder} 
+                              <FontAwesomeIcon
+                                icon={expandedCourriers.has(courrier.id) ? faFolderOpen : faFolder}
                                 className="text-xs"
                               />
                               <span>{expandedCourriers.has(courrier.id) ? "Masquer" : "Visualiser"}</span>
@@ -10995,9 +10375,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         </div>
                       </div>
                     </div>
-                  </td>
+                  </div> : renderCompactSummary(courrier)}
+      </td>
                   {/* Expéditeur / Destinataire */}
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 courrier-correspondents-cell">{rowDetails.has(courrier.id) ? <>
                     <div className="max-w-[280px] space-y-2" title={`Expéditeur: ${courrier.expediteur || '—'} — Destinataire: ${courrier.destinataire || '—'}`}>
                       <div className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-1.5 border border-blue-100">
                         <div className="flex-shrink-0 w-6 h-6 rounded-md bg-blue-500 flex items-center justify-center">
@@ -11018,7 +10399,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         </div>
                       </div>
                     </div>
-                  </td>
+                  </> : <CourrierCorrespondents courrier={courrier} />}</td>
                   {/* Colonne actions - clics ne doivent pas ouvrir le modal résumé */}
                   <td className="px-4 py-4 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-2">
@@ -11030,7 +10411,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           onChange={(e) => handleSelectCourrier(courrier.id, e)}
                           onClick={(e) => e.stopPropagation()}
                           className="w-4 h-4 text-blue-600 border-2 border-slate-300 rounded focus:ring-2 focus:ring-blue-500/30 cursor-pointer"
-                          aria-label={`Sélectionner le courrier ${courrier.numero}`}
+                          aria-label={`Sélectionner le courrier ${courrierReferences(courrier)}`}
                         />
                       </div>
                       <button
@@ -11141,17 +10522,17 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           const df = dossiersFichiers.get(courrier.id) || [];
                           const isDraggedOver = draggedOverCourrier === courrier.id;
                           const isLoadingFichiers = loadingFichiersCourrierId === courrier.id;
-                          
+
                           // Récupérer les accusés de réception depuis localStorage (pour courriers sortants uniquement)
                           const isSortant = getCourrierSens(courrier) === SensCourrier.SORTANT;
                           const accuseStorageKey = `accuses_reception_${courrier.id}`;
                           const storedAccuses = isSortant ? JSON.parse(localStorage.getItem(accuseStorageKey) || '[]') : [];
-                          
+
                           return (
                             <div
                               className={`min-h-[200px] p-4 rounded-lg border-2 border-dashed transition-colors ${
-                                isDraggedOver 
-                                  ? 'bg-blue-100 border-blue-400' 
+                                isDraggedOver
+                                  ? 'bg-blue-100 border-blue-400'
                                   : 'bg-white border-gray-300'
                               }`}
                               onDrop={(e) => handleFileDrop(e, courrier.id)}
@@ -11236,7 +10617,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                                   </div>
                                 </div>
                               )}
-                              
+
                               {df.length === 0 && storedAccuses.length === 0 ? (
                                 <div className="text-center py-8">
                                   <div className="text-sm text-gray-500 italic mb-4">
@@ -11345,18 +10726,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
             <p className="text-surface-400 text-sm mt-1">Essayez de modifier vos filtres de recherche</p>
           </div>
         )}
-        {/* Bouton "voir plus" pour charger plus de courriers */}
-        {courriers.length < allCourriers.length && allCourriers.length > 0 && !loadingMoreCourriers && (
-          <div className="text-center py-6">
-            <button
-              onClick={loadMoreCourriers}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium rounded-xl hover:from-blue-600 hover:to-cyan-600 transition-all shadow-md hover:shadow-lg"
-            >
-              <FontAwesomeIcon icon={faChevronDown} />
-              Voir plus ({allCourriers.length - courriers.length} courriers restants)
-            </button>
-          </div>
-        )}
+
       </div>
 
       {/* Menu contextuel */}
@@ -11470,15 +10840,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         if (completionCheck.isComplete) {
                           realTimeTaskSyncService.notifyTaskCompleted(
                             c.id,
-                            c.numero || '',
+                            courrierReferences(c) || '',
                             user?.id || '',
                             user?.role || '',
                             'Orientation',
                             completionCheck.reason
                           );
-                          showAlert(`Courrier ${c.numero} orienté vers ${cible.target.nom}.\n\n${completionCheck.reason}`, 'success');
+                          showAlert(`Courrier ${courrierReferences(c)} orienté vers ${cible.target.nom}.\n\n${completionCheck.reason}`, 'success');
                         } else {
-                          showAlert(`Courrier ${c.numero} orienté vers ${cible.target.nom}.`, 'success');
+                          showAlert(`Courrier ${courrierReferences(c)} orienté vers ${cible.target.nom}.`, 'success');
                         }
                         loadCourriers();
                       } catch (_) {
@@ -11631,7 +11001,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 <button
                   onClick={async () => {
                     if (!accuseModalCourrier || accuseFiles.length === 0 || !user) return;
-                    
+
                     setIsAddingAccuses(true);
                     try {
                       // Tous les fichiers (images et non-images) sont envoyés via l'API (createFichier) dans le dossier "Accusés de réception"
@@ -11671,7 +11041,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       setShowAccuseModal(false);
                       setAccuseModalCourrier(null);
                       setAccuseFiles([]);
-                      
+
                       await showAlert(`${accuseFiles.length} fichier(s) (dont images) ajouté(s) via l'API avec succès`, 'success');
                     } catch (error: any) {
                       await showAlert(`Erreur lors de l'ajout des accusés de réception: ${error.message}`, 'error');
@@ -11700,142 +11070,26 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
         </ModalPortal>
       )}
 
-      {/* Bouton "Voir plus" avec animation skeleton */}
-      {filteredCourriers.length > 0 && (
-        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-lg border border-surface-100 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm text-surface-600">
-              Affichage de <span className="font-bold text-surface-900">{Math.min(visibleCount, filteredCourriers.length)}</span> sur{' '}
-              <span className="font-bold text-blue-600">{filteredCourriers.length}</span> courrier(s)
-            </div>
-            {hasMoreCourriers && (
-              <div className="text-xs text-surface-500 bg-surface-100 px-3 py-1 rounded-full">
-                {filteredCourriers.length - visibleCount} restant(s)
-              </div>
-            )}
+      {folderViewMode === 'liste' && filteredCourriers.length > 0 && <nav className="courrier-pagination" aria-label="Pagination des courriers">
+        <div className="courrier-page-summary" aria-live="polite"><strong>{pageStart + 1}–{Math.min(pageStart + itemsPerPage, filteredCourriers.length)}</strong> sur <strong>{filteredCourriers.length}</strong> courriers</div>
+        <label className="courrier-page-size">Par page <select value={itemsPerPage} onChange={e => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}>{[10,25,50].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+        <div className="courrier-page-buttons"><button type="button" onClick={() => changePage(activePage - 1)} disabled={activePage === 1} aria-label="Page précédente">‹ <span>Précédent</span></button>
+          {Array.from({length:pageCount},(_,i)=>i+1).filter(page=>page===1||page===pageCount||Math.abs(page-activePage)<=1).map((page,index,pages)=><React.Fragment key={page}>{index>0&&page-pages[index-1]>1&&<span className="courrier-page-ellipsis" aria-hidden="true">…</span>}<button type="button" aria-label={`Page ${page}`} aria-current={page===activePage?'page':undefined} onClick={()=>changePage(page)}>{page}</button></React.Fragment>)}
+          <button type="button" onClick={() => changePage(activePage + 1)} disabled={activePage === pageCount} aria-label="Page suivante"><span>Suivant</span> ›</button></div>
+      </nav>}
+      {folderViewMode === 'arborescence' && filteredCourriers.length > 0 && <p className="courrier-tree-summary">{filteredCourriers.length} courriers · Développez un dossier pour consulter son contenu.</p>}
+
+      {showFolderModal && <CourrierDrawer title={folderEditingId ? 'Modifier le dossier' : 'Nouveau dossier de classement'} description="Un nom, un emplacement : votre classement est prêt." onClose={closeFolderModal} busy={folderSaving}>
+        <form className="courrier-folder-form" onSubmit={event => {event.preventDefault();void handleSaveFolder();}}>
+          <div className="courrier-drawer-body">
+            <div className="courrier-folder-preview"><FontAwesomeIcon icon={faFolder}/><div><strong>{folderModalName.trim() || 'Votre nouveau dossier'}</strong><span>{folderPath(folderModalParentId)}</span></div></div>
+            <label className="drawer-field" htmlFor="classification-folder-name">Nom du dossier<input id="classification-folder-name" data-drawer-autofocus required maxLength={150} disabled={folderSaving} value={folderModalName} onChange={event=>{setFolderModalName(event.target.value);setFolderError('');}} placeholder="Ex. Budget 2027" aria-invalid={!!folderError} aria-describedby={folderError?'classification-folder-error':undefined}/></label>
+            <label className="drawer-field" htmlFor="classification-folder-parent">Emplacement<select id="classification-folder-parent" disabled={folderSaving} value={folderModalParentId || ''} onChange={event=>{setFolderModalParentId(event.target.value || undefined);setFolderError('');}}><option value="">Mes dossiers — à la racine</option>{courrierFolders.filter(folder=>!forbiddenFolderParents.has(folder.id)).sort((a,b)=>folderPath(a.id).localeCompare(folderPath(b.id),'fr')).map(folder=><option key={folder.id} value={folder.id}>{folderPath(folder.id)}</option>)}</select><span>Choisissez un dossier existant pour créer un sous-dossier.</span></label>
+            {folderError && <p id="classification-folder-error" className="drawer-inline-error" role="alert">{folderError}</p>}
           </div>
-          
-          {hasMoreCourriers && (
-            <>
-              <div ref={loadMoreSentinelRef} className="h-4 w-full" aria-hidden="true" />
-              <button
-                onClick={handleLoadMore}
-                disabled={loadingMore}
-                className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-2 hover:from-blue-600 hover:to-blue-700 shadow-lg shadow-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-              {loadingMore ? (
-                <>
-                  <FontAwesomeIcon icon={faSpinner} spin />
-                  Chargement...
-                </>
-              ) : (
-                <>
-                  Voir plus ({filteredCourriers.length - visibleCount} courrier(s))
-                  <FontAwesomeIcon icon={faChevronDown} className="text-xs" />
-                </>
-              )}
-            </button>
-            </>
-          )}
-          
-          {/* Skeleton pendant le chargement progressif */}
-          {loadingMore && (
-            <div className="space-y-3 mt-4">
-              {[...Array(3)].map((_, i) => (
-                <div
-                  key={i}
-                  className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="skeleton w-4 h-4 rounded mt-1 flex-shrink-0" />
-                    <div className="skeleton w-10 h-10 rounded-lg flex-shrink-0" />
-                    <div className="flex-1 space-y-2.5 min-w-0">
-                      <div className="skeleton h-5 w-44 rounded" />
-                      <div className="skeleton h-4 w-full rounded" />
-                      <div className="skeleton h-4 w-3/4 rounded" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-
-
-      {/* Modal de création / édition de catégorie (courriers) */}
-      {showFolderModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[50000]" onClick={() => closeFolderModal()}>
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">
-                {folderEditingId ? 'Modifier la catégorie' : 'Créer une catégorie'}
-              </h3>
-              <button
-                onClick={closeFolderModal}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <FontAwesomeIcon icon={faTimes} />
-              </button>
-            </div>
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nom du dossier
-                </label>
-                <input
-                  type="text"
-                  value={folderModalName}
-                  onChange={(e) => setFolderModalName(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      handleSaveFolder();
-                    }
-                  }}
-                  placeholder="Entrez le nom du dossier"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Dossier parent (pour sous-dossier)
-                </label>
-                <select
-                  value={folderModalParentId || ''}
-                  onChange={(e) => setFolderModalParentId(e.target.value || undefined)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Racine</option>
-                  {courrierFolders
-                    .filter(folder => folder.id !== folderEditingId)
-                    .map(folder => (
-                      <option key={folder.id} value={folder.id}>
-                        {folder.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-2 p-4 border-t bg-gray-50">
-              <button
-                onClick={closeFolderModal}
-                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={handleSaveFolder}
-                disabled={!folderModalName.trim()}
-                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed shadow-lg shadow-blue-500/30 transition-all"
-              >
-                {folderEditingId ? 'Mettre à jour' : 'Créer'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          <footer className="courrier-drawer-footer"><button type="button" className="drawer-button" disabled={folderSaving} onClick={closeFolderModal}>Annuler</button><button type="submit" className="drawer-button primary" disabled={folderSaving || !folderModalName.trim()}>{folderSaving?'Enregistrement…':folderEditingId?'Enregistrer':'Créer le dossier'}</button></footer>
+        </form>
+      </CourrierDrawer>}
 
       {/* Modal d'actions groupées sur les catégories */}
       {showBulkActionsModal && selectedFolderIds.size > 0 && (
@@ -11872,7 +11126,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   </span>
                 </div>
               </div>
-              
+
               {bulkActionType === 'move' ? (
                 <div>
                   <label className="block text-sm font-semibold text-surface-700 mb-2.5">
@@ -11924,7 +11178,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   </div>
                   <div className="p-3 bg-surface-50 rounded-xl border border-surface-200">
                     <p className="text-xs text-surface-600 leading-relaxed">
-                      <span className="font-semibold">Exemple:</span> Si la catégorie s'appelle "Documents" et que vous ajoutez le préfixe "[2026] " et le suffixe " - Archive", 
+                      <span className="font-semibold">Exemple:</span> Si la catégorie s'appelle "Documents" et que vous ajoutez le préfixe "[2026] " et le suffixe " - Archive",
                       le nouveau nom sera <span className="font-semibold text-blue-600">"[2026] Documents - Archive"</span>
                     </p>
                   </div>
@@ -11976,9 +11230,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   courrierBulkActionType === 'orienter-direction' ? 'bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-emerald-500/30' :
                   'bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/30'
                 }`}>
-                  <FontAwesomeIcon 
-                    icon={courrierBulkActionType === 'move' ? faFolder : courrierBulkActionType === 'statut' ? faTasks : courrierBulkActionType === 'orienter' || courrierBulkActionType === 'orienter-dg' || courrierBulkActionType === 'orienter-direction' ? faArrowRight : faExclamationTriangle} 
-                    className="text-white text-sm" 
+                  <FontAwesomeIcon
+                    icon={courrierBulkActionType === 'move' ? faFolder : courrierBulkActionType === 'statut' ? faTasks : courrierBulkActionType === 'orienter' || courrierBulkActionType === 'orienter-dg' || courrierBulkActionType === 'orienter-direction' ? faArrowRight : faExclamationTriangle}
+                    className="text-white text-sm"
                   />
                 </div>
                 <h3 className="text-xl font-bold text-surface-900 tracking-tight">
@@ -12009,7 +11263,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   </span>
                 </div>
               </div>
-              
+
               {courrierBulkActionType === 'move' ? (
                 <div>
                   <label className="block text-sm font-semibold text-surface-700 mb-2.5">
@@ -12115,7 +11369,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       return (
                         <div key={courrier.id} className="px-3 py-2 flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="text-xs font-semibold text-surface-800 truncate">{courrier.numero}</div>
+                            <div className="text-xs font-semibold text-surface-800 truncate">{courrierReferences(courrier)}</div>
                             <div className="text-[11px] text-surface-500 truncate">Destinataire : {courrier.destinataire || 'non renseigné'}</div>
                           </div>
                           {already ? (
@@ -12206,7 +11460,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   bulkOrienterLoading
                 }
                 className={`px-6 py-2.5 text-white rounded-xl font-semibold shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:from-surface-300 disabled:to-surface-400 disabled:cursor-not-allowed ${
-                  courrierBulkActionType === 'move' 
+                  courrierBulkActionType === 'move'
                     ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40' :
                   courrierBulkActionType === 'statut'
                     ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40' :
@@ -12558,7 +11812,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 <FontAwesomeIcon icon={faTimes} className="text-lg" />
               </button>
             </div>
-            
+
             {/* Contenu principal en deux colonnes */}
             <div className="flex-1 overflow-y-auto px-6 py-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-full">
@@ -12577,7 +11831,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="px-5 pb-5">
                       <div className="rounded-2xl border border-slate-200/50 overflow-auto flex flex-col p-4 bg-gradient-to-br from-slate-100 to-blue-50/30" style={{ maxHeight: 'calc(100vh - 300px)' }}>
                         {scanModalPreviewUrl && scanModalPreviewFile ? (
@@ -12655,8 +11909,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                                           <span className="text-sm font-medium text-slate-700">Ajuster:</span>
                                           {(['contain', 'cover', 'fill'] as const).map((fit) => (
                                             <button key={fit} type="button" onClick={() => setImagePreviewFit(fit)} className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                                              imagePreviewFit === fit 
-                                                ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg' 
+                                              imagePreviewFit === fit
+                                                ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg'
                                                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                                             }`} title={fit === 'contain' ? 'Contenir (voir tout)' : fit === 'cover' ? 'Couvrir (remplir)' : 'Étirer'}>
                                               {fit === 'contain' ? 'Contenir' : fit === 'cover' ? 'Couvrir' : 'Étirer'}
@@ -12727,7 +11981,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           <p className="text-sm text-slate-600">Sélectionnez votre scanner</p>
                         </div>
                       </div>
-                      
+
                       <div className="space-y-3">
                         <label htmlFor="scan-modal-scanner" className="block text-sm font-semibold text-slate-700">
                           Scanner disponible
@@ -12788,7 +12042,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           </div>
                         )}
                       </div>
-                      
+
                       {/* Statut du serveur */}
                       <div className="mt-4 flex items-center gap-3">
                         <div className="relative">
@@ -12826,7 +12080,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           <p className="text-sm text-slate-600">Configuration actuelle</p>
                         </div>
                       </div>
-                      
+
                       <div className="bg-gradient-to-r from-slate-50 to-blue-50/30 rounded-xl p-4 border border-slate-200/50">
                         <div className="grid grid-cols-2 gap-3 text-sm">
                           <div className="flex items-center gap-2">
@@ -12858,15 +12112,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                             <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
                             <span className="font-medium text-slate-700">Orientation:</span>
                             <span className="text-slate-600">
-                              {scanSettings.orientation === 'landscape' ? 'paysage' : 
+                              {scanSettings.orientation === 'landscape' ? 'paysage' :
                                scanSettings.orientation === 'portrait' ? 'portrait' : 'auto'}
                             </span>
                           </div>
                         </div>
-                        
+
                         <div className="mt-3 pt-3 border-t border-slate-200/50">
-                          <Link 
-                            to="/parametres" 
+                          <Link
+                            to="/parametres"
                             className="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline transition-colors"
                             onClick={() => closeScanModal()}
                           >
@@ -12889,11 +12143,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${
                           scanModalError === 'Scan annulé' ? 'bg-slate-100' : 'bg-red-100'
                         }`}>
-                          <FontAwesomeIcon 
-                            icon={scanModalError === 'Scan annulé' ? faInfoCircle : faExclamationTriangle} 
+                          <FontAwesomeIcon
+                            icon={scanModalError === 'Scan annulé' ? faInfoCircle : faExclamationTriangle}
                             className={`w-4 h-4 ${
                               scanModalError === 'Scan annulé' ? 'text-slate-600' : 'text-red-600'
-                            }`} 
+                            }`}
                           />
                         </div>
                         <div className="flex-1">
@@ -12908,7 +12162,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 </div>
               </div>
             </div>
-            
+
             {/* Pied de page moderne */}
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 border-t border-slate-200/50 bg-gradient-to-r from-slate-50/70 to-blue-50/30 px-6 py-5">
               {/* Actions de numérisation */}
@@ -12936,7 +12190,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     </>
                   )}
                 </button>
-                
+
                 {scanning && (
                   <button
                     type="button"
@@ -12948,7 +12202,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   </button>
                 )}
               </div>
-              
+
               {/* Actions sur le document */}
               <div className="flex flex-wrap items-center gap-3">
                 <span className="sr-only">Actions sur le document</span>
@@ -13058,12 +12312,12 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-2">Filtrer par sens</label>
                         <div className="grid grid-cols-2 gap-2">
-                          <button 
+                          <button
                             onClick={() => handleFilterSens(registreConfig.filterSens === 'ENTRANT' ? 'ALL' : 'ENTRANT')}
                             className={`px-3 py-2.5 rounded-lg text-sm font-medium ${registreConfig.filterSens === 'ENTRANT' ? 'bg-indigo-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                             Entrant
                           </button>
-                          <button 
+                          <button
                             onClick={() => handleFilterSens(registreConfig.filterSens === 'SORTANT' ? 'ALL' : 'SORTANT')}
                             className={`px-3 py-2.5 rounded-lg text-sm font-medium ${registreConfig.filterSens === 'SORTANT' ? 'bg-indigo-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                             Sortant
@@ -13073,12 +12327,12 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-2">Filtrer par type</label>
                         <div className="grid grid-cols-2 gap-2">
-                          <button 
+                          <button
                             onClick={() => handleFilterType(registreConfig.filterType === 'EXTERNE' ? 'ALL' : 'EXTERNE')}
                             className={`px-3 py-2.5 rounded-lg text-sm font-medium ${registreConfig.filterType === 'EXTERNE' ? 'bg-blue-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                             Externe
                           </button>
-                          <button 
+                          <button
                             onClick={() => handleFilterType(registreConfig.filterType === 'INTERNE' ? 'ALL' : 'INTERNE')}
                             className={`px-3 py-2.5 rounded-lg text-sm font-medium ${registreConfig.filterType === 'INTERNE' ? 'bg-emerald-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                             Interne
@@ -13198,7 +12452,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                               ))}
                             </div>
                           )}
-                          
+
                           {/* Sélecteur d'entités selon le niveau hiérarchique */}
                           <select
                             value={registreConfig.filterEntityId}
@@ -13571,14 +12825,14 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 </button>
               </div>
             </div>
-            
+
             {/* Contenu de la prévisualisation */}
             <div className="flex-1 overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50/30">
               {(() => {
                 const file = scanModalPreviewFile;
                 const isPdf = file.type === 'application/pdf' || (file.name && file.name.toLowerCase().endsWith('.pdf'));
                 const isImage = /^image\/(jpeg|jpg|png|gif|bmp|webp)$/i.test(file.type) || /\.(jpe?g|png|gif|bmp|webp)$/i.test(file.name || '');
-                
+
                 return (
                   <div className="h-full flex flex-col">
                     {isPdf ? (
@@ -13606,10 +12860,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           <div className="flex items-center gap-3">
                             <span className="text-sm font-medium text-slate-700">Contrôles:</span>
                             <div className="flex items-center gap-2">
-                              <button 
-                                type="button" 
-                                onClick={() => setImagePreviewZoom((z) => Math.max(0.1, z - 0.25))} 
-                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all duration-200" 
+                              <button
+                                type="button"
+                                onClick={() => setImagePreviewZoom((z) => Math.max(0.1, z - 0.25))}
+                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all duration-200"
                                 title="Zoom arrière"
                               >
                                 <FontAwesomeIcon icon={faMagnifyingGlassMinus} className="w-4 h-4" />
@@ -13617,30 +12871,30 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                               <span className="text-sm font-medium text-slate-600 min-w-[4rem] text-center bg-slate-100 px-2 py-1 rounded-lg">
                                 {Math.round(imagePreviewZoom * 100)}%
                               </span>
-                              <button 
-                                type="button" 
-                                onClick={() => setImagePreviewZoom((z) => Math.min(5, z + 0.25))} 
-                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all duration-200" 
+                              <button
+                                type="button"
+                                onClick={() => setImagePreviewZoom((z) => Math.min(5, z + 0.25))}
+                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all duration-200"
                                 title="Zoom avant"
                               >
                                 <FontAwesomeIcon icon={faMagnifyingGlassPlus} className="w-4 h-4" />
                               </button>
                             </div>
-                            <button 
-                              type="button" 
-                              onClick={() => { setImagePreviewZoom(1); setImagePreviewRotation(0); }} 
-                              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all duration-200" 
+                            <button
+                              type="button"
+                              onClick={() => { setImagePreviewZoom(1); setImagePreviewRotation(0); }}
+                              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition-all duration-200"
                               title="Réinitialiser"
                             >
-                              <FontAwesomeIcon icon={faExpand} className="mr-1.5 w-4 h-4" /> 
+                              <FontAwesomeIcon icon={faExpand} className="mr-1.5 w-4 h-4" />
                               Réinitialiser
                             </button>
                             <div className="h-4 w-px bg-slate-300"></div>
                             <div className="flex items-center gap-2">
-                              <button 
-                                type="button" 
-                                onClick={() => setImagePreviewRotation((r) => (r - 90 + 360) % 360 as 0 | 90 | 180 | 270)} 
-                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all duration-200" 
+                              <button
+                                type="button"
+                                onClick={() => setImagePreviewRotation((r) => (r - 90 + 360) % 360 as 0 | 90 | 180 | 270)}
+                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all duration-200"
                                 title="Pivoter à gauche"
                               >
                                 <FontAwesomeIcon icon={faRotateLeft} className="w-4 h-4" />
@@ -13648,10 +12902,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                               <span className="text-sm font-medium text-slate-600 min-w-[3rem] text-center bg-slate-100 px-2 py-1 rounded-lg">
                                 {imagePreviewRotation}°
                               </span>
-                              <button 
-                                type="button" 
-                                onClick={() => setImagePreviewRotation((r) => (r + 90) % 360 as 0 | 90 | 180 | 270)} 
-                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all duration-200" 
+                              <button
+                                type="button"
+                                onClick={() => setImagePreviewRotation((r) => (r + 90) % 360 as 0 | 90 | 180 | 270)}
+                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all duration-200"
                                 title="Pivoter à droite"
                               >
                                 <FontAwesomeIcon icon={faRotateRight} className="w-4 h-4" />
@@ -13661,15 +12915,15 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium text-slate-700">Ajuster:</span>
                               {(['contain', 'cover', 'fill'] as const).map((fit) => (
-                                <button 
-                                  key={fit} 
-                                  type="button" 
-                                  onClick={() => setImagePreviewFit(fit)} 
+                                <button
+                                  key={fit}
+                                  type="button"
+                                  onClick={() => setImagePreviewFit(fit)}
                                   className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                                    imagePreviewFit === fit 
-                                      ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg' 
+                                    imagePreviewFit === fit
+                                      ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg'
                                       : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                                  }`} 
+                                  }`}
                                   title={fit === 'contain' ? 'Contenir (voir tout)' : fit === 'cover' ? 'Couvrir (remplir)' : 'Étirer'}
                                 >
                                   {fit === 'contain' ? 'Contenir' : fit === 'cover' ? 'Couvrir' : 'Étirer'}
@@ -13683,23 +12937,23 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                             )}
                           </div>
                         </div>
-                        
+
                         {/* Zone d'affichage de l'image */}
                         <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-gradient-to-br from-slate-100 to-blue-50/30">
-                          <div className="bg-white rounded-2xl overflow-hidden relative flex items-center justify-center shadow-xl" style={{ 
-                            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', 
-                            maxHeight: 'calc(95vh - 200px)', 
-                            maxWidth: '100%' 
+                          <div className="bg-white rounded-2xl overflow-hidden relative flex items-center justify-center shadow-xl" style={{
+                            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+                            maxHeight: 'calc(95vh - 200px)',
+                            maxWidth: '100%'
                           }}>
                             <img
                               key={scanModalPreviewUrl}
                               src={scanModalPreviewUrl}
                               alt="Document scanné"
                               className="max-w-full max-h-full w-auto h-auto origin-center transition-transform duration-300 object-contain rounded-2xl"
-                              style={{ 
-                                objectFit: imagePreviewFit, 
-                                transform: `scale(${imagePreviewZoom}) rotate(${imagePreviewRotation}deg)`, 
-                                minHeight: 1 
+                              style={{
+                                objectFit: imagePreviewFit,
+                                transform: `scale(${imagePreviewZoom}) rotate(${imagePreviewRotation}deg)`,
+                                minHeight: 1
                               }}
                             />
                           </div>
@@ -13740,11 +12994,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 );
               })()}
             </div>
-            
+
             {/* Pied de page du popout */}
             <div className="flex items-center justify-between px-6 py-3 border-t border-slate-200/50 bg-gradient-to-r from-slate-50/70 to-blue-50/30">
               <div className="text-sm text-slate-600">
-                {scanModalPreviewFile.name} • 
+                {scanModalPreviewFile.name} •
                 {scanModalPreviewFile.size && (
                   <span className="ml-2">
                     ({scanModalPreviewFile.size < 1024 ? scanModalPreviewFile.size + ' o' : scanModalPreviewFile.size < 1024 * 1024 ? (scanModalPreviewFile.size / 1024).toFixed(2) + ' KB' : (scanModalPreviewFile.size / (1024 * 1024)).toFixed(2) + ' MB'})
@@ -13787,14 +13041,14 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
           <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] min-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b bg-gray-50">
               <div className="flex items-center gap-3">
-                <FontAwesomeIcon 
-                  icon={getFileIcon(viewFileData.fichier.extension)} 
+                <FontAwesomeIcon
+                  icon={getFileIcon(viewFileData.fichier.extension)}
                   className={`text-2xl ${getFileIconColor(viewFileData.fichier.extension)}`}
                 />
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">{viewFileData.fichier.nom}</h3>
                   <p className="text-sm text-gray-500">
-                    {viewFileData.fichier.extension?.toUpperCase()} • 
+                    {viewFileData.fichier.extension?.toUpperCase()} •
                     {viewFileData.fichier.taille ? ` ${(viewFileData.fichier.taille / 1024).toFixed(2)} KB` : ''}
                   </p>
                 </div>
@@ -13836,9 +13090,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 </button>
                 <button
                   onClick={() => {
-                    const courrierId = dossiersFichiers.get(viewFileData.fichier.courrierId) ? 
-                      viewFileData.fichier.courrierId : 
-                      Array.from(dossiersFichiers.keys()).find(id => 
+                    const courrierId = dossiersFichiers.get(viewFileData.fichier.courrierId) ?
+                      viewFileData.fichier.courrierId :
+                      Array.from(dossiersFichiers.keys()).find(id =>
                         dossiersFichiers.get(id)?.some(f => f.id === viewFileData.fichier.id)
                       ) || '';
                     if (courrierId) {
@@ -14027,8 +13281,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       // Pour les fichiers locaux, proposer l'édition intégrée
                       return (
                         <div className="w-full h-full flex flex-col items-center justify-center p-8 bg-white">
-                  <FontAwesomeIcon 
-                    icon={getFileIcon(viewFileData.fichier.extension)} 
+                  <FontAwesomeIcon
+                    icon={getFileIcon(viewFileData.fichier.extension)}
                     className={`text-6xl ${getFileIconColor(viewFileData.fichier.extension)} mb-4`}
                   />
                           <p className="text-gray-600 mb-4 text-center">
@@ -14095,8 +13349,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     if (isBlobUrl) {
                       return (
                         <div className="w-full h-full flex flex-col items-center justify-center p-8 bg-white">
-                          <FontAwesomeIcon 
-                            icon={getFileIcon(viewFileData.fichier.extension)} 
+                          <FontAwesomeIcon
+                            icon={getFileIcon(viewFileData.fichier.extension)}
                             className={`text-6xl ${getFileIconColor(viewFileData.fichier.extension)} mb-4`}
                           />
                           <p className="text-gray-600 mb-4 text-center">
@@ -14154,8 +13408,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   if (isBlobUrl) {
                     return (
                       <div className="w-full h-full flex flex-col items-center justify-center p-8 bg-white">
-                        <FontAwesomeIcon 
-                          icon={getFileIcon(viewFileData.fichier.extension)} 
+                        <FontAwesomeIcon
+                          icon={getFileIcon(viewFileData.fichier.extension)}
                           className={`text-6xl ${getFileIconColor(viewFileData.fichier.extension)} mb-4`}
                         />
                         <p className="text-gray-600 mb-4 text-center">
@@ -14217,8 +13471,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                  <FontAwesomeIcon 
-                    icon={getFileIcon(viewFileData.fichier.extension)} 
+                  <FontAwesomeIcon
+                    icon={getFileIcon(viewFileData.fichier.extension)}
                     className={`text-6xl ${getFileIconColor(viewFileData.fichier.extension)} mb-4`}
                   />
                   <p className="text-gray-600 mb-4">Aperçu non disponible pour ce type de fichier</p>
@@ -14240,36 +13494,8 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
       {/* Modal de résumé du courrier */}
       {showResumeModal && selectedCourrierForResume && (
-        <ModalPortal>
-          <div
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100020]"
-            onClick={() => {
-              setShowResumeModal(false);
-              setSelectedCourrierForResume(null);
-            }}
-          >
-            <div
-              className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col overflow-hidden z-[100021]"
-              onClick={(e) => e.stopPropagation()}
-            >
-            <div className="flex items-center justify-between px-6 py-5 border-b bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-white">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-white/70">Résumé du courrier</p>
-                <h2 className="text-2xl font-bold tracking-tight">
-                  {selectedCourrierForResume.numero}
-                </h2>
-              </div>
-              <button
-                onClick={() => {
-                  setShowResumeModal(false);
-                  setSelectedCourrierForResume(null);
-                }}
-                className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
-              >
-                <FontAwesomeIcon icon={faTimes} className="text-lg" />
-              </button>
-            </div>
-            <div className="p-6 space-y-6 flex-1 overflow-y-auto">
+        <CourrierDrawer wide title={courrierReferences(selectedCourrierForResume)} description={selectedCourrierForResume.objet?.replace(/<[^>]*>/g,'')} onClose={()=>{setShowResumeModal(false);setSelectedCourrierForResume(null);}} headerActions={<a className="courrier-popout-link" href={`/courriers/${selectedCourrierForResume.id}?mode=popout`} target="_blank" rel="noopener noreferrer" title="Ouvrir le courrier dans une fenêtre séparée"><FontAwesomeIcon icon={faExternalLinkAlt}/><span>Ouvrir à part</span></a>}>
+            <div className="courrier-summary-body p-6 space-y-6 flex-1 overflow-y-auto">
               {/* Uniquement les champs configurés dans le formulaire de paramétrage */}
               {(() => {
                 const courrier = selectedCourrierForResume;
@@ -14277,6 +13503,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 const displayFields = formulaireCourrierService.getDisplayFields(sens, courrier.type);
 
                 const getFieldValue = (c: Courrier, fieldName: string): unknown => {
+                  if (fieldName === 'numero' || fieldName === 'numeroOrganisationnel') return courrierReferences(c);
                   // Pour les courriers INTERNE : si destinataire est vide, utiliser expediteur comme fallback pour destinataire
                   if (c.type === TypeCourrier.INTERNE) {
                     if (fieldName === 'destinataire') return c.destinataire || (c.extraFields as Record<string, unknown>)?.[fieldName];
@@ -14414,9 +13641,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   </div>
                   {/* Contenu SVG en dessous */}
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 overflow-auto" style={{ maxHeight: '360px' }}>
-                    <svg 
-                      width="100%" 
-                      height={Math.max(300, workflowsForPreview.length * 150)} 
+                    <svg
+                      width="100%"
+                      height={Math.max(300, workflowsForPreview.length * 150)}
                       className="min-w-full"
                       viewBox={`0 0 ${Math.max(800, workflowsForPreview.length * 300)} ${Math.max(300, workflowsForPreview.length * 150)}`}
                     >
@@ -14432,13 +13659,13 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           const x = index * 250 + 20;
                           const y = 100;
                           const isCondition = etape.estCondition;
-                          
+
                           const actionVrai = etape.actionSiVrai ? workflowsForPreview.find(w => w.id === etape.actionSiVrai) : null;
                           const actionFaux = etape.actionSiFaux ? workflowsForPreview.find(w => w.id === etape.actionSiFaux) : null;
-                          const evenementOrigine = etape.declencheur?.etapePrecedenteId 
-                            ? workflowsForPreview.find(w => w.id === etape.declencheur?.etapePrecedenteId) 
+                          const evenementOrigine = etape.declencheur?.etapePrecedenteId
+                            ? workflowsForPreview.find(w => w.id === etape.declencheur?.etapePrecedenteId)
                             : null;
-                          const origineIndex = evenementOrigine 
+                          const origineIndex = evenementOrigine
                             ? workflowsForPreview.filter(w => {
                                 if (!w.estCondition) return true;
                                 if (w.estCondition && w.actionSiVrai && w.actionSiFaux) return true;
@@ -14446,7 +13673,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                                 return false;
                               }).findIndex(w => w.id === evenementOrigine.id)
                             : -1;
-                          
+
                           return (
                             <g key={etape.id}>
                               {isCondition ? (
@@ -14604,7 +13831,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t bg-white/95 backdrop-blur sticky bottom-0 z-[10001]">
+            <div className="courrier-summary-footer">
               <div className="flex items-center gap-2 text-xs text-gray-500">
                 <FontAwesomeIcon icon={faInfoCircle} className="text-gray-400" />
                 <span>Actions sur ce courrier</span>
@@ -14655,7 +13882,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 )}
                 {(user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN || user?.role === Role.DIRECTEUR_GENERAL) && (
                   <Link
-                    to={`/enregistrer?courrierId=${selectedCourrierForResume.id}`}
+                    to={`/enregistrer?id=${selectedCourrierForResume.id}`}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm"
                     onClick={() => {
                       setShowResumeModal(false);
@@ -14697,9 +13924,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 )}
               </div>
             </div>
-          </div>
-          </div>
-        </ModalPortal>
+        </CourrierDrawer>
       )}
 
       {/* Modal d'édition supprimé : l'édition se fait maintenant sur la page /enregistrer */}
@@ -15082,7 +14307,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 key={pdfPreviewUrl || 'loading'}
                 src={pdfPreviewUrl || undefined}
                 className="w-full border-0 rounded-lg bg-white flex-1"
-                style={{ 
+                style={{
                   minHeight: '600px',
                   height: '100%',
                   width: '100%',
@@ -15207,9 +14432,9 @@ const AssignCourrierForm: React.FC<{
 
   useEffect(() => {
     if (!user) return;
-    
+
     const visibleUsers = userService.getVisibleUsers(user.id);
-    
+
     if (selectedDivision) {
       const filteredUsers = userService.getAssignableUsersByDivision(selectedDivision);
       const finalUsers = visibleUsers.filter(u => filteredUsers.some(fu => fu.id === u.id));
@@ -15225,9 +14450,9 @@ const AssignCourrierForm: React.FC<{
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     setLoadingOperations({ update: true });
-    
+
     if (assignMode === 'procedure') {
       if (!selectedProcedure) {
         setLoadingOperations({ update: false });
@@ -15250,7 +14475,7 @@ const AssignCourrierForm: React.FC<{
         }
 
         // Utiliser les acteurs de la procédure ou ceux sélectionnés
-        const acteurs = procedure.acteurs.length > 0 ? procedure.acteurs : 
+        const acteurs = procedure.acteurs.length > 0 ? procedure.acteurs :
           (selectedUser ? [selectedUser] : []);
 
         const instance = procedureService.createProcedureInstance(
@@ -15270,14 +14495,14 @@ const AssignCourrierForm: React.FC<{
     } else {
       // Assignation classique avec logique améliorée pour le secrétariat
       let targetUser = selectedUser;
-      
+
       // Si l'utilisateur est le secrétariat et n'a pas spécifié d'utilisateur
       if (user.role === Role.SECRETAIRE && !selectedUser) {
         if (assignType === 'direction' && selectedDirection) {
           // Chercher le directeur de la direction
-          const directeur = adminService.getAllUsers().find(u => 
-            u.role === Role.DIRECTEUR_GENERAL && 
-            u.direction === selectedDirection && 
+          const directeur = adminService.getAllUsers().find(u =>
+            u.role === Role.DIRECTEUR_GENERAL &&
+            u.direction === selectedDirection &&
             u.actif
           );
           if (directeur) {
@@ -15286,9 +14511,9 @@ const AssignCourrierForm: React.FC<{
           }
         } else if (assignType === 'division' && selectedDivision) {
           // Chercher le directeur de la direction pour la division
-          const directeur = adminService.getAllUsers().find(u => 
-            u.role === Role.DIRECTEUR_GENERAL && 
-            (u as any).division === selectedDivision && 
+          const directeur = adminService.getAllUsers().find(u =>
+            u.role === Role.DIRECTEUR_GENERAL &&
+            (u as any).division === selectedDivision &&
             u.actif
           );
           if (directeur) {
@@ -15297,9 +14522,9 @@ const AssignCourrierForm: React.FC<{
           }
         } else if (assignType === 'service' && selectedService) {
           // Chercher le chef de service, sinon un agent dédié
-          const chefService = adminService.getAllUsers().find(u => 
-            u.role === Role.CHEF_SERVICE && 
-            u.service === selectedService && 
+          const chefService = adminService.getAllUsers().find(u =>
+            u.role === Role.CHEF_SERVICE &&
+            u.service === selectedService &&
             u.actif
           );
           if (chefService) {
@@ -15307,9 +14532,9 @@ const AssignCourrierForm: React.FC<{
             window.alert(`Orientation automatique vers le chef du service ${selectedService}`);
           } else {
             // Si pas de chef de service, chercher un agent dédié
-            const agent = adminService.getAllUsers().find(u => 
-              u.role === Role.AGENT && 
-              u.service === selectedService && 
+            const agent = adminService.getAllUsers().find(u =>
+              u.role === Role.AGENT &&
+              u.service === selectedService &&
               u.actif
             );
             if (agent) {
@@ -15812,7 +15037,7 @@ const AssignCourrierForm: React.FC<{
             <ul className="space-y-1">
               <li>
                 <span className="text-gray-500">Courrier :</span>{' '}
-                <span className="font-medium">{courrier.numero}</span> - {(courrier.objet || '').replace(new RegExp('<[^>]*>', 'g'), '')}
+                <span className="font-medium">{courrierReferences(courrier)}</span> - {(courrier.objet || '').replace(new RegExp('<[^>]*>', 'g'), '')}
               </li>
               <li>
                 <span className="text-gray-500">Mode :</span>{' '}

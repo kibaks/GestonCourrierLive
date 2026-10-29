@@ -23,7 +23,7 @@ function toDayjs(value: string | Date | null | undefined): Dayjs | null {
 }
 
 function toHtmlLocalDateString(value: Dayjs | null): string {
-  if (!value) return '';
+  if (!value || !value.isValid()) return '';
   return value.format('YYYY-MM-DD');
 }
 
@@ -45,7 +45,7 @@ export const MaterialDateField: React.FC<Props> = ({
       <DatePicker
         label={label}
         value={djValue}
-        onChange={(newVal) => onChange(toHtmlLocalDateString(newVal))}
+        onChange={(newVal, context) => { if (!context.validationError) onChange(toHtmlLocalDateString(newVal)); }}
         disabled={disabled}
         minDate={min}
         maxDate={max}
