@@ -38,33 +38,6 @@ export default function Login() {
     else if(!existing){script.src='https://accounts.google.com/gsi/client';script.async=true;script.dataset.googleGsi='true';document.body.appendChild(script);}
     return()=>{cancelled=true;script.removeEventListener('load',initialize);script.removeEventListener('error',failed);};
   },[challenge,navigate]);
-  const googleButton=useRef<HTMLDivElement>(null);
-  const googleLoginRef=useRef(loginWithGoogle);googleLoginRef.current=loginWithGoogle;
-  useEffect(()=>{
-    const clientId=import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    if(!clientId||challenge)return;
-    let cancelled=false;
-    const initialize=()=>{
-      const google=(window as any).google;
-      if(cancelled||!googleButton.current||!google?.accounts?.id)return;
-      google.accounts.id.initialize({client_id:clientId,callback:async(response:{credential?:string})=>{
-        if(!response.credential||cancelled)return;
-        setBusy(true);setError('');
-        try{if(await googleLoginRef.current(response.credential))navigate('/dashboard',{replace:true});else setError('Connexion Google impossible. Réessayez.');}
-        catch(e){const failure=e as Error & {challenge?:string};if(failure.challenge){setChallenge(failure.challenge);setCode('');}else setError(failure.message||'Google est momentanément indisponible.');}
-        finally{setBusy(false);}
-      }});
-      googleButton.current.replaceChildren();
-      google.accounts.id.renderButton(googleButton.current,{theme:'outline',size:'large',text:'signin_with',width:300});
-    };
-    const existing=document.querySelector<HTMLScriptElement>('script[data-google-gsi="true"]');
-    const script=existing||document.createElement('script');
-    const failed=()=>{if(!cancelled)setError('Google est indisponible. Utilisez votre mot de passe.');};
-    script.addEventListener('load',initialize);script.addEventListener('error',failed);
-    if((window as any).google?.accounts?.id)initialize();
-    else if(!existing){script.src='https://accounts.google.com/gsi/client';script.async=true;script.dataset.googleGsi='true';document.body.appendChild(script);}
-    return()=>{cancelled=true;script.removeEventListener('load',initialize);script.removeEventListener('error',failed);};
-  },[challenge,navigate]);
   async function submit(event:React.FormEvent) {
     event.preventDefault();if(busy)return;setBusy(true);setError('');
     try {
@@ -78,7 +51,6 @@ export default function Login() {
     {challenge&&<div className="auth-identity"><span>{email.slice(0,1).toUpperCase()}</span><div><small>Compte à vérifier</small><strong>{email}</strong></div></div>}
     {error&&<AuthNotice>{error}</AuthNotice>}
     <form onSubmit={submit} className="auth-form"><fieldset disabled={busy}>{challenge?<SecurityCodeField value={code} onChange={setCode} recovery={recovery}/>:<><label className="auth-label" htmlFor="login-email">Adresse e-mail<span className="auth-input-wrap"><FontAwesomeIcon icon={faEnvelope}/><input id="login-email" type="email" required autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} placeholder="vous@organisation.cd"/></span></label><AuthPasswordField label="Mot de passe" value={password} onChange={setPassword}/><div className="auth-form-options"><span><FontAwesomeIcon icon={faShieldHalved}/> Compte professionnel</span><Link to="/mot-de-passe-oublie">Mot de passe oublié ?</Link></div></>}<button className="auth-submit" type="submit">{busy?'Vérification en cours…':challenge?'Vérifier et continuer':'Se connecter'}{!busy&&<FontAwesomeIcon icon={faArrowRight}/>}</button></fieldset></form>
-    {!challenge&&<div ref={googleButton} style={{display:'flex',justifyContent:'center',marginTop:16,pointerEvents:busy?'none':undefined}} aria-label="Connexion avec Google"/>}
     {!challenge&&<div ref={googleButton} style={{display:'flex',justifyContent:'center',marginTop:16,pointerEvents:busy?'none':undefined}} aria-label="Connexion avec Google"/>}
     {challenge?<div className="auth-secondary-actions"><button type="button" disabled={busy} onClick={()=>{setRecovery(v=>!v);setCode('');setError('');}}><FontAwesomeIcon icon={faKey}/>{recovery?'Utiliser l’application d’authentification':'Utiliser un code de secours'}</button><button type="button" disabled={busy} onClick={()=>{setChallenge('');setCode('');setError('');setRecovery(false);}}>← Revenir à la connexion</button></div>:<div className="auth-bottom-note"><FontAwesomeIcon icon={faShieldHalved}/><p>Votre accès est personnel.<br/><span>Utilisez le compte transmis par votre administrateur.</span></p></div>}
   </AuthShell>;
