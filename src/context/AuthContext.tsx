@@ -1,10 +1,9 @@
+import { profileRequest } from '../services/profileService';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Utilisateur, Role, Permission } from '../types';
 import { adminService } from '../services/adminService';
 import { laravelApiService } from '../services/laravelApiService';
-import { profileRequest } from '../services/profileService';
 import { formulaireCourrierService } from '../services/formulaireCourrierService';
-import { profileRequest } from '../services/profileService';
 
 interface AuthContextType {
   user: Utilisateur | null;
