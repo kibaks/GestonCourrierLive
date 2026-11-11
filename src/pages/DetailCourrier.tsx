@@ -11,7 +11,7 @@ import { directionService } from '../services/directionService';
 import { entiteOrganisationnelleService } from '../services/entiteOrganisationnelleService';
 import { entiteTypeService } from '../services/entiteTypeService';
 import { adminService } from '../services/adminService';
-import { isDGSecretary, resolveOrientationTarget, getDG, getDirecteurs, type OrientationCible } from '../utils/orientation';
+
 import { Courrier, Assignation, WorkflowEtape, WorkflowDecision, Role, Priorite, Utilisateur, CategorieFichier, TypeCourrier, SensCourrier, TypeEntiteOrganisationnelle, Annotation, StatutCourrier } from '../types';
 import { categorieFichierService } from '../services/categorieFichierService';
 import { laravelApiService } from '../services/laravelApiService';
@@ -235,7 +235,7 @@ const DetailCourrier: React.FC = () => {
   const [isCourrierOrientedToDG, setIsCourrierOrientedToDG] = useState(false);
   const [isCourrierOrientedToDirector, setIsCourrierOrientedToDirector] = useState(false);
   // P11 — repli manuel du bouton d'orientation (destinataire non reconnu) : userId choisi
-  const [orientTargetSelect, setOrientTargetSelect] = useState<string>('');
+
   const [showInlineAnnotation, setShowInlineAnnotation] = useState(false);
   const [newAnnotationContent, setNewAnnotationContent] = useState('');
   const [newAnnotationType, setNewAnnotationType] = useState<'MINUTE' | 'NOTE' | 'COMMENTAIRE'>('COMMENTAIRE');
@@ -2141,112 +2141,7 @@ const DetailCourrier: React.FC = () => {
                 </button>
               )}
               
-              {/* P11 — Bouton d'orientation : secrétaire du DG (drapeau estSecrétaireDG) ou super admin.
-                  La cible est déterminée par le DESTINATAIRE du courrier :
-                  Direction Générale → DG ; direction X → directeur de X.
-                  Repli : destinataire non reconnu → sélection manuelle (DG ou directeur). */}
-              {courrier.statut !== StatutCourrier.TRAITE && courrier.statut !== StatutCourrier.ARCHIVE && (isDGSecretary(user) || user?.role === Role.SUPER_ADMIN) && (() => {
-                if (!courrier || !user) return null;
-                const usersList = adminService.getAllUsers();
-                const cible = resolveOrientationTarget(courrier, usersList);
-                const isDGTarget = cible?.target.role === Role.DIRECTEUR_GENERAL;
-                const already = cible
-                  ? (isDGTarget ? isCourrierOrientedToDG : isCourrierOrientedToDirector)
-                  : false;
-                const manualTarget = orientTargetSelect
-                  ? usersList.find(u => String(u.id) === String(orientTargetSelect))
-                  : null;
-                const effectiveCible: OrientationCible | null = cible || (manualTarget
-                  ? {
-                      target: manualTarget,
-                      motif: 'cible manuelle : ' + manualTarget.nom,
-                      statut: manualTarget.role === Role.DIRECTEUR_GENERAL ? 'ORIENTE_DG' : 'ORIENTE_DIRECTEUR'
-                    }
-                  : null);
-                return (
-                  <div className="inline-flex items-center gap-2">
-                    {!cible && (
-                      <select
-                        value={orientTargetSelect}
-                        onChange={(e) => setOrientTargetSelect(e.target.value)}
-                        className="bg-white/10 text-white text-sm rounded-xl border border-white/30 px-2 py-2.5 focus:outline-none max-w-[220px]"
-                        title="Destinataire non reconnu : choisir la cible"
-                      >
-                        <option value="" className="text-surface-900">Choisir la cible…</option>
-                        {(() => { const dg = getDG(usersList); return dg ? <option value={dg.id} className="text-surface-900">DG — {dg.nom}</option> : null; })()}
-                        {getDirecteurs(usersList).map(d => (
-                          <option key={d.id} value={d.id} className="text-surface-900">{d.nom} ({d.direction})</option>
-                        ))}
-                      </select>
-                    )}
-                    <button
-                      type="button"
-                      disabled={already || !effectiveCible}
-                      title={already
-                        ? `Déjà orienté vers ${effectiveCible?.target.nom || ''}`
-                        : effectiveCible
-                          ? `Destinataire : ${effectiveCible.motif} → ${effectiveCible.target.nom}`
-                          : 'Destinataire non reconnu : choisissez une cible'}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/30 bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-all backdrop-blur disabled:opacity-50 disabled:cursor-not-allowed"
-                      onClick={async () => {
-                        if (already || !effectiveCible) return;
-                        try {
-                          await courrierService.createAssignation({
-                            courrierId: id!,
-                            assigneA: effectiveCible.target.id,
-                            assignePar: user?.id || '',
-                            statut: 'EN_ATTENTE',
-                            instructions: `Orientation secrétariat DG (${effectiveCible.motif}) vers ${effectiveCible.target.nom}`
-                          });
-                          await courrierService.updateCourrier(id!, { statut: effectiveCible.statut as StatutCourrier }).catch(() => {});
-                          if (effectiveCible.target.role === Role.DIRECTEUR_GENERAL) {
-                            setIsCourrierOrientedToDG(true);
-                          } else {
-                            setIsCourrierOrientedToDirector(true);
-                          }
-                          const updated = await courrierService.getAssignationsByCourrier(id!);
-                          setAssignations(updated);
 
-                          const completionCheck = taskCompletionService.checkTaskCompletion(user, { orientationDone: true });
-                          if (completionCheck.isComplete) {
-                            const orientationEntry = {
-                              id: `orientation-${Date.now()}`,
-                              type: 'orientation',
-                              date: new Date(),
-                              title: 'Orientation effectuée',
-                              description: `Courrier orienté vers ${effectiveCible.target.nom}`,
-                              status: 'TERMINE',
-                              user: user,
-                              assignedBy: user,
-                              isLoading: false,
-                              priority: 'high',
-                              actionRequise: 'Orientation complétée'
-                            };
-                            setTasksTimeline(prev => [...prev, orientationEntry]);
-
-                            realTimeTaskSyncService.notifyTaskCompleted(
-                              id!,
-                              courrier?.numero || '',
-                              user.id,
-                              user.role,
-                              'Orientation',
-                              completionCheck.reason
-                            );
-                            showAlert(`Courrier ${courrier ? courrierReferences(courrier) : ""} orienté vers ${effectiveCible.target.nom}.\n\n${completionCheck.reason}`, 'success');
-                          } else {
-                            showAlert(`Courrier ${courrier ? courrierReferences(courrier) : ""} orienté vers ${effectiveCible.target.nom}.`, 'success');
-                          }
-                        } catch (_) {
-                          showAlert('Erreur lors de l\'orientation.', 'error');
-                        }
-                      }}
-                    >
-                      <FontAwesomeIcon icon={faCompass} />
-                      {already ? 'Déjà orienté' : 'Orienter'}
-                    </button>
-                  </div>
-                );
-              })()}
               
               <button
                 type="button"
