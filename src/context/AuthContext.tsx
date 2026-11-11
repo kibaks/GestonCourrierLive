@@ -2,7 +2,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Utilisateur, Role, Permission } from '../types';
 import { adminService } from '../services/adminService';
 import { laravelApiService } from '../services/laravelApiService';
+import { profileRequest } from '../services/profileService';
 import { formulaireCourrierService } from '../services/formulaireCourrierService';
+import { profileRequest } from '../services/profileService';
 
 interface AuthContextType {
   user: Utilisateur | null;
@@ -12,7 +14,7 @@ interface AuthContextType {
   locked: boolean;
   lockSession: () => void;
   login: (email: string, password: string) => Promise<boolean>;
-  loginWithGoogle: (googleUser: any) => Promise<boolean>;
+  loginWithGoogle: (credential: string) => Promise<boolean>;
   logout: () => void;
   unlockWithPassword: (password: string) => Promise<boolean>;
   isAuthenticated: boolean;
@@ -327,80 +329,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return ok;
   };
 
-  const loginWithGoogle = async (googleUser: any): Promise<boolean> => {
-    try {
-      console.log('🔄 Traitement de la connexion Google pour:', googleUser.email);
-      
-      if (!googleUser || !googleUser.email) {
-        console.error('❌ Données Google invalides:', googleUser);
-        throw new Error('Données Google invalides. Email manquant.');
-      }
-      
-      if (laravelApiService.isConfigured()) {
-        await Promise.all([adminService.refreshUsersFromApi(), adminService.refreshRolesFromApi()]);
-      }
-      const allUsers = adminService.getAllUsers();
-      let user = allUsers.find(u => u.email === googleUser.email && u.actif);
-      
-      if (!user) {
-        console.log('📝 Création d\'un nouvel utilisateur pour:', googleUser.email);
-        try {
-          user = await adminService.createUser({
-            nom: googleUser.name || `${googleUser.given_name || ''} ${googleUser.family_name || ''}`.trim() || googleUser.email,
-            email: googleUser.email,
-            role: Role.AGENT,
-            actif: true,
-            photoUrl: googleUser.picture
-          });
-          console.log('✅ Utilisateur créé avec succès:', user.id);
-        } catch (createError: any) {
-          console.error('❌ Erreur lors de la création de l\'utilisateur:', createError);
-          throw new Error(`Impossible de créer l'utilisateur: ${createError?.message || 'Erreur inconnue'}`);
-        }
-      } else {
-        console.log('✅ Utilisateur existant trouvé:', user.id);
-        if (googleUser.picture && !user.photoUrl) {
-          try {
-            const updatedUser = await adminService.updateUser(user.id, { photoUrl: googleUser.picture });
-            user = updatedUser || undefined;
-            console.log('✅ Photo de profil mise à jour');
-          } catch (updateError) {
-            console.warn('⚠️ Erreur lors de la mise à jour de la photo:', updateError);
-          }
-        }
-      }
-      
-      if (user) {
-        if (laravelApiService.isConfigured()) {
-          const token = await laravelApiService.getTokenByEmail(user.email);
-          if (!token) {
-            throw new Error(
-              "Pour utiliser l'API Laravel, configurez VITE_LARAVEL_SYNC_SECRET (front .env) et LARAVEL_SYNC_SECRET (laravel-api/.env) avec la même valeur."
-            );
-          }
-          laravelApiService.setAuthToken(token);
-          const me = await laravelApiService.getMe();
-          if (!me) {
-            throw new Error('Impossible de récupérer la session API Laravel.');
-          }
-          setUser({ ...me, photoUrl: user.photoUrl ?? me.photoUrl });
-          localStorage.setItem('user', JSON.stringify({ ...me, photoUrl: user.photoUrl ?? me.photoUrl }));
-          console.log('✅ Connexion Google réussie (session basée sur le token):', me.email);
-          return true;
-        }
-        setUser(user);
-        localStorage.setItem('user', JSON.stringify(user));
-        console.log('✅ Connexion Google réussie pour:', user.email);
-        return true;
-      }
-      
-      console.error('❌ Utilisateur non trouvé après traitement');
-      throw new Error('Impossible de créer ou récupérer l\'utilisateur');
-    } catch (error: any) {
-      console.error('❌ Erreur lors de la connexion Google:', error);
-      // Propager l'erreur avec un message clair
-      throw new Error(error?.message || 'Erreur lors de la connexion Google. Vérifiez la console pour plus de détails.');
-    }
+  const loginWithGoogle = async (credential: string): Promise<boolean> => {
+    const response = await profileRequest<{token?: string; twoFactorRequired?: boolean; challenge?: string}>('auth/google', {credential});
+    if (response.twoFactorRequired && response.challenge) throw Object.assign(new Error('Confirmez votre identité.'), {challenge: response.challenge});
+    if (!response.token) return false;
+    await completeSecureLogin(response.token);
+    return true;
   };
 
   const logout = () => {
