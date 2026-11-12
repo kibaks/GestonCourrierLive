@@ -37,7 +37,7 @@ export const getAuthToken = (): string | null => {
   // Adapter selon votre auth Laravel (Bearer, Sanctum, etc.)
   // Support multiple token storage keys for compatibility
   if (typeof localStorage !== 'undefined') {
-    return localStorage.getItem('laravel_token') || localStorage.getItem('token') || 
+    return localStorage.getItem('laravel_token') || localStorage.getItem('token') ||
            localStorage.getItem('access_token') ||
            localStorage.getItem('auth_token') ||
            localStorage.getItem('jwt_token') ||
