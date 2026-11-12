@@ -1,3 +1,4 @@
+import { createSessionFetch } from './sessionFetch';
 /**
  * Client API Laravel (MySQL) - Niveau 2 du stockage à trois niveaux.
  * Courriers + gestion des fichiers (import) via l'API.
@@ -36,10 +37,9 @@ export const getAuthToken = (): string | null => {
   // Adapter selon votre auth Laravel (Bearer, Sanctum, etc.)
   // Support multiple token storage keys for compatibility
   if (typeof localStorage !== 'undefined') {
-    return localStorage.getItem('token') || 
+    return localStorage.getItem('laravel_token') || localStorage.getItem('token') || 
            localStorage.getItem('access_token') ||
            localStorage.getItem('auth_token') ||
-           localStorage.getItem('laravel_token') ||
            localStorage.getItem('jwt_token') ||
            localStorage.getItem('user_token');
   }
@@ -94,7 +94,7 @@ const buildHeaders = (): HeadersInit => {
 // Le JWT expire au bout de 60 min. Avant ce fix, toute requête avec un token
 // expiré renvoyait 401 et forçait la reconnexion de l'utilisateur. L'API
 // (fix backend 24/08/2026) accepte le refresh d'un token expiré depuis moins
-// de 7 jours : on appelle /api/auth/refresh avec l'ancien token et on stocke
+// de 24 heures : on appelle /api/auth/refresh avec l'ancien token et on stocke
 // le nouveau (clé laravel_token, relue automatiquement par buildHeaders()).
 let refreshInFlight: Promise<string | null> | null = null;
 
@@ -121,9 +121,8 @@ export const refreshAuthToken = async (): Promise<string | null> => {
       const data = await res.json();
       const token = data?.token ?? data?.data?.token;
       if (!token || typeof token !== 'string') return null;
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('laravel_token', token);
-      }
+      if (getAuthToken() !== current) return getAuthToken();
+      laravelApiService.setAuthToken(token);
       return token;
     } catch {
       return null;
@@ -134,6 +133,16 @@ export const refreshAuthToken = async (): Promise<string | null> => {
 
   return refreshInFlight;
 };
+
+export const apiFetch = createSessionFetch({
+  baseUrl: getBaseUrl,
+  getToken: getAuthToken,
+  refresh: refreshAuthToken,
+  onExpired: () => {
+    laravelApiService.clearAuthToken();
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('auth:expired'));
+  },
+});
 
 /** Parser la réponse d'erreur Laravel pour afficher un message clair (401, 422, 500). */
 function parseApiErrorMessage(status: number, bodyText: string): string {
@@ -366,7 +375,7 @@ class LaravelApiService {
       fetchOptions.body = JSON.stringify(options.data);
     }
     
-    const res = await fetch(fullUrl, fetchOptions);
+    const res = await apiFetch(fullUrl, fetchOptions);
     if (!res.ok) {
       const text = await res.text();
       const msg = parseApiErrorMessage(res.status, text);
@@ -389,12 +398,12 @@ class LaravelApiService {
       const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s max
       let res: Response;
       try {
-        res = await fetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store', signal: controller.signal });
+        res = await apiFetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store', signal: controller.signal });
         // (M5) Token expiré : refresh silencieux + une seule retry
         if (res.status === 401) {
           const newToken = await refreshAuthToken();
           if (newToken) {
-            res = await fetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store', signal: controller.signal });
+            res = await apiFetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store', signal: controller.signal });
           }
         }
       } finally {
@@ -417,11 +426,11 @@ class LaravelApiService {
     if (!this.baseUrl) return null;
     try {
       const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(id)}`;
-      let res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+      let res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
       // (M5) Token expiré : refresh silencieux + une seule retry
       if (res.status === 401) {
         const newToken = await refreshAuthToken();
-        if (newToken) res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+        if (newToken) res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
       }
       if (!res.ok) return null;
       const data = await res.json();
@@ -442,7 +451,7 @@ class LaravelApiService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000); // Timeout 30s
 
-    let res = await fetch(url, {
+    let res = await apiFetch(url, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(body),
@@ -455,7 +464,7 @@ class LaravelApiService {
     if (res.status === 401) {
       const newToken = await refreshAuthToken();
       if (newToken) {
-        res = await fetch(url, {
+        res = await apiFetch(url, {
           method: 'POST',
           headers: buildHeaders(),
           body: JSON.stringify(body),
@@ -486,7 +495,7 @@ class LaravelApiService {
     if (!this.baseUrl) throw new Error('API Laravel non configurée (VITE_LARAVEL_API_URL)');
     const url = `${this.baseUrl}/api/courriers/bulk`;
     const body = { courriers: courriers.map((c) => prepareCourrierForApi(c as Partial<Courrier>)) };
-    let res = await fetch(url, {
+    let res = await apiFetch(url, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(body),
@@ -496,7 +505,7 @@ class LaravelApiService {
     if (res.status === 401) {
       const newToken = await refreshAuthToken();
       if (newToken) {
-        res = await fetch(url, {
+        res = await apiFetch(url, {
           method: 'POST',
           headers: buildHeaders(),
           body: JSON.stringify(body),
@@ -524,7 +533,7 @@ class LaravelApiService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000); // Timeout 30s
 
-    let res = await fetch(url, {
+    let res = await apiFetch(url, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify(body),
@@ -535,7 +544,7 @@ class LaravelApiService {
     if (res.status === 401) {
       const newToken = await refreshAuthToken();
       if (newToken) {
-        res = await fetch(url, {
+        res = await apiFetch(url, {
           method: 'PUT',
           headers: buildHeaders(),
           body: JSON.stringify(body),
@@ -563,7 +572,7 @@ class LaravelApiService {
       
       // Ensuite, supprimer le courrier lui-même
       const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(id)}`;
-      const res = await fetch(url, { method: 'DELETE', headers: buildHeaders() });
+      const res = await apiFetch(url, { method: 'DELETE', headers: buildHeaders() });
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`API delete courrier: ${res.status} ${res.statusText} - ${text}`);
@@ -586,7 +595,7 @@ class LaravelApiService {
       // Supprimer chaque fichier
       const deletePromises = files.map(async (file) => {
         const deleteUrl = `${this.baseUrl}/api/dossiers-fichiers/${encodeURIComponent(file.id)}`;
-        const res = await fetch(deleteUrl, { method: 'DELETE', headers: buildHeaders() });
+        const res = await apiFetch(deleteUrl, { method: 'DELETE', headers: buildHeaders() });
         if (!res.ok) {
           const text = await res.text();
           console.warn(`Impossible de supprimer le fichier ${file.id}: ${res.status} ${res.statusText} - ${text}`);
@@ -607,7 +616,7 @@ class LaravelApiService {
     if (!this.baseUrl) throw new Error('API Laravel non configurée (VITE_LARAVEL_API_URL)');
     
     const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(courrierId)}/fichiers`;
-    const res = await fetch(url, { headers: buildHeaders() });
+    const res = await apiFetch(url, { headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API get courrier files: ${res.status} ${res.statusText} - ${text}`);
@@ -623,7 +632,7 @@ class LaravelApiService {
     const cacheKey = `GET:fichiers:${courrierId}`;
     return this.cached(cacheKey, 15000, async () => {
       const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(courrierId)}/fichiers`;
-      const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+      const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
       if (!res.ok) {
         const text = await res.text();
         let msg: string;
@@ -654,7 +663,7 @@ class LaravelApiService {
     try {
       // Appel batch pour récupérer les counts de tous les courriers en une requête
       const url = `${this.baseUrl}/api/courriers/files-counts?ids=${encodeURIComponent(courrierIds.join(','))}`;
-      const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+      const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
       if (!res.ok) {
         // Fallback silencieux : retourner des zéros
         courrierIds.forEach(id => result.set(id, { nbFichiers: 0, nbCategories: 0 }));
@@ -681,7 +690,7 @@ class LaravelApiService {
     const cacheKey = `GET:files-count:${courrierId}`;
     return this.cached(cacheKey, 30000, async () => {
       const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(courrierId)}/files-count`;
-      const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+      const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
       if (!res.ok) return { nbFichiers: 0, nbCategories: 0 };
       const data = await res.json();
       const c = data?.data || data || {};
@@ -714,7 +723,7 @@ class LaravelApiService {
     const token = getAuthToken();
     if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    const res = await apiFetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!res.ok) {
       const text = await res.text();
       let msg: string;
@@ -758,7 +767,7 @@ class LaravelApiService {
   ): Promise<CategorieFichier> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée (VITE_LARAVEL_API_URL)');
     const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(courrierId)}/fichiers`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({
@@ -782,7 +791,7 @@ class LaravelApiService {
   async getFichier(id: string): Promise<CategorieFichier | null> {
     if (!this.baseUrl) return null;
     const url = `${this.baseUrl}/api/fichiers/${encodeURIComponent(id)}`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return null;
     const data = await res.json();
     const raw = data?.data ?? data;
@@ -802,7 +811,7 @@ class LaravelApiService {
     const headers: HeadersInit = { Accept: '*/*' };
     const token = getAuthToken();
     if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(url, { method: 'GET', headers });
+    const res = await apiFetch(url, { method: 'GET', headers });
     if (!res.ok) throw new Error(`Téléchargement fichier: ${res.status} ${res.statusText}`);
     return res.blob();
   }
@@ -812,7 +821,7 @@ class LaravelApiService {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`${this.baseUrl}/api/scan-preview`, {
+    const res = await apiFetch(`${this.baseUrl}/api/scan-preview`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${getAuthToken() || ''}` },
       body: form,
@@ -834,7 +843,7 @@ class LaravelApiService {
     const headers: HeadersInit = { Accept: '*/*' };
     const token = getAuthToken();
     if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(url, { method: 'GET', headers });
+    const res = await apiFetch(url, { method: 'GET', headers });
     if (!res.ok) throw new Error(`Prévisualisation: ${res.status} ${res.statusText}`);
     return res.blob();
   }
@@ -843,14 +852,14 @@ class LaravelApiService {
   async deleteScanPreview(previewId: string): Promise<void> {
     if (!this.baseUrl) return;
     const url = `${this.baseUrl}/api/scan-preview/${encodeURIComponent(previewId)}`;
-    await fetch(url, { method: 'DELETE', headers: buildHeaders() });
+    await apiFetch(url, { method: 'DELETE', headers: buildHeaders() });
   }
 
   /** PUT /api/fichiers/:id */
   async updateFichier(id: string, updates: { nom?: string; parentId?: string | null; estAccuseReception?: boolean }): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée (VITE_LARAVEL_API_URL)');
     const url = `${this.baseUrl}/api/fichiers/${encodeURIComponent(id)}`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify(updates),
@@ -867,7 +876,7 @@ class LaravelApiService {
   async deleteFichier(id: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée (VITE_LARAVEL_API_URL)');
     const url = `${this.baseUrl}/api/fichiers/${encodeURIComponent(id)}`;
-    const res = await fetch(url, { method: 'DELETE', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'DELETE', headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API delete fichier: ${res.status} ${res.statusText} - ${text}`);
@@ -888,7 +897,7 @@ class LaravelApiService {
     const url = userId 
       ? `${this.baseUrl}/api/storage-stats?user_id=${userId}`
       : `${this.baseUrl}/api/storage-stats`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) {
       console.warn('[Storage] getStorageStats:', res.status, res.statusText);
       return { totalFiles: 0, totalSize: 0, quota: 1073741824, byExtension: [] };
@@ -914,7 +923,7 @@ class LaravelApiService {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 90000); // Timeout 90s
       try {
-        const res = await fetch(url, { method: 'GET', headers: buildHeaders(), signal: controller.signal });
+        const res = await apiFetch(url, { method: 'GET', headers: buildHeaders(), signal: controller.signal });
         clearTimeout(timeout);
         if (!res.ok) throw new Error(`API folders: ${res.status} ${res.statusText}`);
         const data = await res.json().catch(() => ({}));
@@ -935,7 +944,7 @@ class LaravelApiService {
   async createFolder(body: { name: string; parentId?: string | null; color?: string | null; visibility?: 'dg' | 'direction' | 'service' | 'private' }): Promise<{ id: string; name: string; parentId?: string | null; createdAt: string; updatedAt: string; userId?: string; color?: string | null; visibility?: string; direction?: string | null; service?: string | null }> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const url = `${this.baseUrl}/api/folders`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(body),
@@ -954,7 +963,7 @@ class LaravelApiService {
   async updateFolder(id: string, body: { name?: string; parentId?: string | null; color?: string | null; visibility?: 'dg' | 'direction' | 'service' | 'private' }): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const url = `${this.baseUrl}/api/folders/${encodeURIComponent(id)}`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify(body),
@@ -971,7 +980,7 @@ class LaravelApiService {
   async deleteFolders(ids: string[]): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const url = `${this.baseUrl}/api/folders`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'DELETE',
       headers: buildHeaders(),
       body: JSON.stringify({ ids }),
@@ -995,7 +1004,7 @@ class LaravelApiService {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000); // Timeout 30s
       try {
-        const res = await fetch(url, { method: 'GET', headers: buildHeaders(), signal: controller.signal });
+        const res = await apiFetch(url, { method: 'GET', headers: buildHeaders(), signal: controller.signal });
         clearTimeout(timeout);
         const elapsed = Date.now() - startTime;
         console.log('[Catégories] getFolderMap response:', res.status, 'en', elapsed, 'ms');
@@ -1035,7 +1044,7 @@ class LaravelApiService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000); // Timeout 30s
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: 'PUT',
         headers: buildHeaders(),
         body: JSON.stringify({ map }),
@@ -1063,7 +1072,7 @@ class LaravelApiService {
   async getMe(): Promise<Utilisateur | null> {
     if (!this.baseUrl) return null;
     const url = `${this.baseUrl}/api/auth/me`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return null;
     const data = await res.json();
     const raw = data?.data;
@@ -1094,7 +1103,7 @@ class LaravelApiService {
   async login(email: string, password: string): Promise<string | null> {
     if (!this.baseUrl) return null;
     const url = `${this.baseUrl}/api/auth/login`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -1115,7 +1124,7 @@ class LaravelApiService {
     const syncSecret = import.meta.env.VITE_LARAVEL_SYNC_SECRET;
     if (!syncSecret || String(syncSecret).trim() === '') return null;
     const url = `${this.baseUrl}/api/auth/token-by-email`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ email, sync_secret: syncSecret }),
@@ -1128,6 +1137,7 @@ class LaravelApiService {
 
   /** Définir le token d'authentification (après login Laravel/Sanctum) */
   setAuthToken(token: string): void {
+    this.clearAuthToken();
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('laravel_token', token);
     }
@@ -1150,7 +1160,7 @@ class LaravelApiService {
     const url = assigneA
       ? `${this.baseUrl}/api/assignations?assigne_a=${encodeURIComponent(assigneA)}`
       : `${this.baseUrl}/api/assignations`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
@@ -1168,7 +1178,7 @@ class LaravelApiService {
       
       // Récupérer tous les utilisateurs de la direction
       const usersUrl = `${this.baseUrl}/api/users`;
-      const usersRes = await fetch(usersUrl, { method: 'GET', headers: buildHeaders() });
+      const usersRes = await apiFetch(usersUrl, { method: 'GET', headers: buildHeaders() });
       if (!usersRes.ok) return [];
       
       const usersData = await usersRes.json();
@@ -1211,7 +1221,7 @@ class LaravelApiService {
   async getAssignationsByCourrier(courrierId: string): Promise<Assignation[]> {
     if (!this.baseUrl) return [];
     const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(courrierId)}/assignations`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
@@ -1220,7 +1230,7 @@ class LaravelApiService {
 
   async createAssignation(body: { courrierId: string; assigneA: string; assignePar?: string; dateEcheance?: Date; instructions?: string; statut?: 'EN_ATTENTE' | 'EN_COURS' | 'TERMINE' }): Promise<Assignation> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/assignations`, {
+    const res = await apiFetch(`${this.baseUrl}/api/assignations`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({
@@ -1242,7 +1252,7 @@ class LaravelApiService {
 
   async updateAssignation(id: string, updates: { dateEcheance?: Date; instructions?: string; statut?: 'EN_ATTENTE' | 'EN_COURS' | 'TERMINE' }): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/assignations/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/assignations/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify({
@@ -1259,7 +1269,7 @@ class LaravelApiService {
 
   async deleteAssignation(id: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/assignations/${encodeURIComponent(id)}`, { method: 'DELETE', headers: buildHeaders() });
+    const res = await apiFetch(`${this.baseUrl}/api/assignations/${encodeURIComponent(id)}`, { method: 'DELETE', headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API delete assignation: ${res.status} - ${text}`);
@@ -1273,7 +1283,7 @@ class LaravelApiService {
   async getCourrierIdsByWorkflowAssignee(userId: string): Promise<string[]> {
     if (!this.baseUrl) return [];
     const url = `${this.baseUrl}/api/workflow-etapes/courrier-ids?assigne_a=${encodeURIComponent(userId)}`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
@@ -1289,7 +1299,7 @@ class LaravelApiService {
     if (!this.baseUrl) return [];
     let url = `${this.baseUrl}/api/workflow-etapes/courrier-ids?direction=${encodeURIComponent(direction)}`;
     if (service) url += `&service=${encodeURIComponent(service)}`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
@@ -1303,7 +1313,7 @@ class LaravelApiService {
   async getCourrierIdsByAnnotationAuteur(userId: string): Promise<string[]> {
     if (!this.baseUrl) return [];
     const url = `${this.baseUrl}/api/annotations/courrier-ids?auteur=${encodeURIComponent(userId)}`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
@@ -1314,7 +1324,7 @@ class LaravelApiService {
   async getAnnotationsByCourrier(courrierId: string): Promise<Annotation[]> {
     if (!this.baseUrl) return [];
     const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(courrierId)}/annotations`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
@@ -1352,7 +1362,7 @@ class LaravelApiService {
     workflowTarget?: { type: 'ENTITE' | 'USER'; id: string; nom?: string; typeEntite?: string };
   }): Promise<Annotation> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/annotations`, {
+    const res = await apiFetch(`${this.baseUrl}/api/annotations`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({
@@ -1384,7 +1394,7 @@ class LaravelApiService {
   /** P1 — Mettre à jour une annotation (auteur ou DG). */
   async updateAnnotation(id: string, body: { contenu?: string; statut?: 'OUVERT' | 'RESOLU'; decision?: 'FAVORABLE' | 'A_REVOIR' | 'INFO' | null; workflowEtapeId?: string | null }): Promise<Annotation> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/annotations/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/annotations/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: buildHeaders(),
       body: JSON.stringify(body),
@@ -1400,7 +1410,7 @@ class LaravelApiService {
   /** P1 — Supprimer une annotation (auteur ou DG). */
   async deleteAnnotation(id: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/annotations/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/annotations/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: buildHeaders(),
     });
@@ -1413,7 +1423,7 @@ class LaravelApiService {
   /** P3a — Boîte « Courriers à annoter » du DG (DG / SUPER_ADMIN). */
   async getDgAnnotationInbox(): Promise<import('../types').AnnotationInboxItem[]> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/annotations/dg-inbox`, {
+    const res = await apiFetch(`${this.baseUrl}/api/annotations/dg-inbox`, {
       method: 'GET',
       headers: buildHeaders(),
     });
@@ -1439,7 +1449,7 @@ class LaravelApiService {
   }): Promise<any> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const url = `${this.baseUrl}/api/notifications`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({
@@ -1469,7 +1479,7 @@ class LaravelApiService {
     const url = `${this.baseUrl}/api/notifications?${params}`;
     const cacheKey = `GET:notifications:${userId}:${params.toString()}`;
     return this.cached(cacheKey, 15000, async () => {
-      const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+      const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
       if (!res.ok) return [];
       const data = await res.json();
       // Le contrôleur retourne directement le tableau (pas enveloppé dans {data:...})
@@ -1481,7 +1491,7 @@ class LaravelApiService {
     if (!this.baseUrl) return;
     // POST /api/notifications/{id}/mark-read
     const url = `${this.baseUrl}/api/notifications/${encodeURIComponent(notificationId)}/mark-read`;
-    const res = await fetch(url, { method: 'POST', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'POST', headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API mark notification read: ${res.status} - ${text}`);
@@ -1493,7 +1503,7 @@ class LaravelApiService {
     if (!this.baseUrl) return;
     // POST /api/notifications/mark-all-read
     const url = `${this.baseUrl}/api/notifications/mark-all-read`;
-    const res = await fetch(url, { method: 'POST', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'POST', headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API mark all notifications read: ${res.status} - ${text}`);
@@ -1504,7 +1514,7 @@ class LaravelApiService {
   async deleteNotification(notificationId: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const url = `${this.baseUrl}/api/notifications/${encodeURIComponent(notificationId)}`;
-    const res = await fetch(url, { method: 'DELETE', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'DELETE', headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API delete notification: ${res.status} - ${text}`);
@@ -1515,7 +1525,7 @@ class LaravelApiService {
   async deleteAllNotifications(): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
     const url = `${this.baseUrl}/api/notifications/all`;
-    const res = await fetch(url, { method: 'DELETE', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'DELETE', headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API delete all notifications: ${res.status} - ${text}`);
@@ -1529,7 +1539,7 @@ class LaravelApiService {
     const cacheKey = `GET:notifications:unread-count:${userId}`;
     return this.cached(cacheKey, 15000, async () => {
       const url = `${this.baseUrl}/api/notifications/unread-count`;
-      const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+      const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
       if (!res.ok) return 0;
       const data = await res.json();
       return data?.count || 0;
@@ -1540,7 +1550,7 @@ class LaravelApiService {
   async getWorkflowEtapesByCourrier(courrierId: string): Promise<WorkflowEtape[]> {
     if (!this.baseUrl) return [];
     const url = `${this.baseUrl}/api/courriers/${encodeURIComponent(courrierId)}/workflow-etapes`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
@@ -1581,7 +1591,7 @@ class LaravelApiService {
         dateDeclenchement: body.declencheur.dateDeclenchement?.toISOString?.(),
       };
     }
-    const res = await fetch(`${this.baseUrl}/api/workflow-etapes`, {
+    const res = await apiFetch(`${this.baseUrl}/api/workflow-etapes`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(payload),
@@ -1608,7 +1618,7 @@ class LaravelApiService {
     if (updates.declencheur != null) payload.declencheur = updates.declencheur;
     if (updates.actionSiVrai != null) payload.actionSiVrai = updates.actionSiVrai;
     if (updates.actionSiFaux != null) payload.actionSiFaux = updates.actionSiFaux;
-    const res = await fetch(`${this.baseUrl}/api/workflow-etapes/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/workflow-etapes/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify(payload),
@@ -1623,7 +1633,7 @@ class LaravelApiService {
 
   async addWorkflowResponse(id: string, body: { message: string; decision?: string; auteurId?: string; auteurNom?: string }): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/workflow-etapes/${encodeURIComponent(id)}/responses`, {
+    const res = await apiFetch(`${this.baseUrl}/api/workflow-etapes/${encodeURIComponent(id)}/responses`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({ message: body.message, decision: body.decision }),
@@ -1636,7 +1646,7 @@ class LaravelApiService {
 
   async deleteWorkflowEtape(id: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/workflow-etapes/${encodeURIComponent(id)}`, { method: 'DELETE', headers: buildHeaders() });
+    const res = await apiFetch(`${this.baseUrl}/api/workflow-etapes/${encodeURIComponent(id)}`, { method: 'DELETE', headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API delete workflow: ${res.status} - ${text}`);
@@ -1649,7 +1659,7 @@ class LaravelApiService {
     const url = assigneA
       ? `${this.baseUrl}/api/rappels?assigne_a=${encodeURIComponent(assigneA)}`
       : `${this.baseUrl}/api/rappels`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
@@ -1658,7 +1668,7 @@ class LaravelApiService {
 
   async createRappel(body: { assignationId: string; courrierId: string; dateRappel: Date; message?: string }): Promise<Rappel> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/rappels`, {
+    const res = await apiFetch(`${this.baseUrl}/api/rappels`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({
@@ -1678,7 +1688,7 @@ class LaravelApiService {
 
   async marquerRappelEnvoye(id: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/rappels/${encodeURIComponent(id)}/envoye`, { method: 'POST', headers: buildHeaders() });
+    const res = await apiFetch(`${this.baseUrl}/api/rappels/${encodeURIComponent(id)}/envoye`, { method: 'POST', headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`API marquer rappel envoyé: ${res.status} - ${text}`);
@@ -1699,10 +1709,10 @@ class LaravelApiService {
 
     while (safety < 50) {
       const url = `${this.baseUrl}/api/users?page=${page}&per_page=${perPage}`;
-      const res = await fetch(url, { method: 'GET', headers, cache: 'no-store' });
+      const res = await apiFetch(url, { method: 'GET', headers, cache: 'no-store' });
       if (!res.ok) {
         if (page === 1) {
-          const fallbackRes = await fetch(`${this.baseUrl}/api/users`, { method: 'GET', headers, cache: 'no-store' });
+          const fallbackRes = await apiFetch(`${this.baseUrl}/api/users`, { method: 'GET', headers, cache: 'no-store' });
           if (!fallbackRes.ok) return [];
           const data = await fallbackRes.json();
           const list = Array.isArray(data?.data) ? data.data
@@ -1768,7 +1778,7 @@ class LaravelApiService {
       entite_id: body.entiteId ?? null,
       actif: body.actif ?? true,
     };
-    const res = await fetch(`${this.baseUrl}/api/users`, {
+    const res = await apiFetch(`${this.baseUrl}/api/users`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(payload),
@@ -1794,7 +1804,7 @@ class LaravelApiService {
     if (updates.estSecrétaireDG !== undefined) payload.estSecrétaireDG = updates.estSecrétaireDG;
     if (updates.actif !== undefined) payload.actif = updates.actif;
 
-    const res = await fetch(`${this.baseUrl}/api/users/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/users/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify(payload),
@@ -1809,7 +1819,7 @@ class LaravelApiService {
 
   async deleteUser(id: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/users/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/users/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: buildHeaders(),
     });
@@ -1823,7 +1833,7 @@ class LaravelApiService {
   async getRoles(): Promise<RoleDefinition[]> {
     if (!this.baseUrl) return [];
     try {
-      const res = await fetch(`${this.baseUrl}/api/roles`, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
+      const res = await apiFetch(`${this.baseUrl}/api/roles`, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
       if (!res.ok) return [];
       const data = await res.json();
       const list = Array.isArray(data?.data) ? data.data : [];
@@ -1835,7 +1845,7 @@ class LaravelApiService {
 
   async createRole(body: Omit<RoleDefinition, 'id' | 'dateCreation' | 'dateModification'>): Promise<RoleDefinition> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/roles`, {
+    const res = await apiFetch(`${this.baseUrl}/api/roles`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify({
@@ -1860,7 +1870,7 @@ class LaravelApiService {
     if (updates.code !== undefined) payload.code = updates.code;
     if (updates.description !== undefined) payload.description = updates.description;
     if (updates.permissions !== undefined) payload.permissions = updates.permissions;
-    const res = await fetch(`${this.baseUrl}/api/roles/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/roles/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify(payload),
@@ -1875,7 +1885,7 @@ class LaravelApiService {
 
   async deleteRole(id: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/roles/${encodeURIComponent(id)}`, { method: 'DELETE', headers: buildHeaders() });
+    const res = await apiFetch(`${this.baseUrl}/api/roles/${encodeURIComponent(id)}`, { method: 'DELETE', headers: buildHeaders() });
     if (!res.ok && res.status !== 204) {
       const text = await res.text();
       throw new Error(parseApiErrorMessage(res.status, text));
@@ -1885,7 +1895,7 @@ class LaravelApiService {
   // ——— Config formulaire (MySQL) ———
   async getConfigFormulaire(): Promise<Record<string, unknown>> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/config/formulaire`, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(`${this.baseUrl}/api/config/formulaire`, { method: 'GET', headers: buildHeaders() });
     if (res.status === 401) {
       throw new Error('Non authentifié. Connectez-vous avec votre compte Laravel (email / mot de passe).');
     }
@@ -1903,7 +1913,7 @@ class LaravelApiService {
 
   async saveConfigFormulaire(config: Record<string, unknown>): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/config/formulaire`, {
+    const res = await apiFetch(`${this.baseUrl}/api/config/formulaire`, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify({ data: config }),
@@ -1917,7 +1927,7 @@ class LaravelApiService {
   /** Config générique par clé (GET /api/config/{key}). */
   async getConfigByKey(key: string): Promise<Record<string, unknown>> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/config/${encodeURIComponent(key)}`, { method: 'GET', headers: buildHeaders() });
+    const res = await apiFetch(`${this.baseUrl}/api/config/${encodeURIComponent(key)}`, { method: 'GET', headers: buildHeaders() });
     if (res.status === 401) {
       throw new Error('Non authentifié. Connectez-vous avec votre compte Laravel (email / mot de passe).');
     }
@@ -1933,7 +1943,7 @@ class LaravelApiService {
   /** Sauvegarde config générique par clé (PUT /api/config/{key}). */
   async saveConfigByKey(key: string, config: Record<string, unknown>): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/config/${encodeURIComponent(key)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/config/${encodeURIComponent(key)}`, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify({ data: config }),
@@ -1948,7 +1958,7 @@ class LaravelApiService {
   async getImportFichiersLimits(): Promise<{ maxSizeMo: number; compressImages: boolean }> {
     if (!this.baseUrl) return { maxSizeMo: 100, compressImages: true };
     try {
-      const res = await fetch(`${this.baseUrl}/api/parametres/import-fichiers`, { method: 'GET', headers: buildHeaders() });
+      const res = await apiFetch(`${this.baseUrl}/api/parametres/import-fichiers`, { method: 'GET', headers: buildHeaders() });
       if (!res.ok) return { maxSizeMo: 100, compressImages: true };
       const data = await res.json();
       const d = data?.data;
@@ -1965,7 +1975,7 @@ class LaravelApiService {
   /** Mise à jour config import fichiers (paramétrage, nécessite droits admin). */
   async updateImportFichiersConfig(payload: { maxSizeMo: number; compressImages: boolean }): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/config/courrier_fichier`, {
+    const res = await apiFetch(`${this.baseUrl}/api/config/courrier_fichier`, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify({ data: payload }),
@@ -1981,7 +1991,7 @@ class LaravelApiService {
   async getEntiteTypesLabels(): Promise<EntiteTypeDefinition[]> {
     if (!this.baseUrl) return [];
     try {
-      const res = await fetch(`${this.baseUrl}/api/entite-types/labels`, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
+      const res = await apiFetch(`${this.baseUrl}/api/entite-types/labels`, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
       if (!res.ok) return [];
       const data = await res.json();
       const list = Array.isArray(data?.data) ? data.data : [];
@@ -1995,7 +2005,7 @@ class LaravelApiService {
   async getEntiteTypes(): Promise<EntiteTypeDefinition[]> {
     if (!this.baseUrl) return [];
     try {
-      const res = await fetch(`${this.baseUrl}/api/entite-types`, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
+      const res = await apiFetch(`${this.baseUrl}/api/entite-types`, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
       if (!res.ok) return [];
       const data = await res.json();
       const list = Array.isArray(data?.data) ? data.data : [];
@@ -2007,7 +2017,7 @@ class LaravelApiService {
 
   async createEntiteType(payload: { code: string; libelleSingulier: string; libellePluriel: string; description?: string; icone?: string; ordre?: number; actif?: boolean }): Promise<EntiteTypeDefinition> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée (VITE_LARAVEL_API_URL)');
-    const res = await fetch(`${this.baseUrl}/api/entite-types`, {
+    const res = await apiFetch(`${this.baseUrl}/api/entite-types`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(payload),
@@ -2031,7 +2041,7 @@ class LaravelApiService {
     if (payload.icone !== undefined) body.icone = payload.icone;
     if (payload.ordre !== undefined) body.ordre = payload.ordre;
     if (payload.actif !== undefined) body.actif = Boolean(payload.actif);
-    const res = await fetch(`${this.baseUrl}/api/entite-types/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/entite-types/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify(body),
@@ -2046,7 +2056,7 @@ class LaravelApiService {
 
   async deleteEntiteType(id: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée (VITE_LARAVEL_API_URL)');
-    const res = await fetch(`${this.baseUrl}/api/entite-types/${encodeURIComponent(id)}`, { method: 'DELETE', headers: buildHeaders() });
+    const res = await apiFetch(`${this.baseUrl}/api/entite-types/${encodeURIComponent(id)}`, { method: 'DELETE', headers: buildHeaders() });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(parseApiErrorMessage(res.status, text));
@@ -2061,7 +2071,7 @@ class LaravelApiService {
     if (params?.parentId) search.set('parentId', params.parentId);
     const qs = search.toString();
     const url = `${this.baseUrl}/api/entites-organisationnelles${qs ? `?${qs}` : ''}`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
@@ -2078,7 +2088,7 @@ class LaravelApiService {
   ): Promise<Array<{ id: string; objet?: string; reference?: string; numero?: string; expediteur?: string; date?: string; statut?: string }>> {
     if (!this.baseUrl) return [];
     const url = `${this.baseUrl}/api/users/${encodeURIComponent(userId)}/courriers?statut=${encodeURIComponent(statut)}`;
-    const res = await fetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
+    const res = await apiFetch(url, { method: 'GET', headers: buildHeaders(), cache: 'no-store' });
     if (!res.ok) throw new Error(`API courriers utilisateur: ${res.status}`);
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
@@ -2096,7 +2106,7 @@ class LaravelApiService {
       actif: body.actif ?? true,
       responsableId: body.responsableId ?? null,
     };
-    const res = await fetch(`${this.baseUrl}/api/entites-organisationnelles`, {
+    const res = await apiFetch(`${this.baseUrl}/api/entites-organisationnelles`, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(payload),
@@ -2121,7 +2131,7 @@ class LaravelApiService {
     if (updates.actif !== undefined) payload.actif = updates.actif;
     if (updates.responsableId !== undefined) payload.responsableId = updates.responsableId;
 
-    const res = await fetch(`${this.baseUrl}/api/entites-organisationnelles/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/entites-organisationnelles/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: buildHeaders(),
       body: JSON.stringify(payload),
@@ -2137,7 +2147,7 @@ class LaravelApiService {
 
   async deleteEntiteOrganisationnelle(id: string): Promise<void> {
     if (!this.baseUrl) throw new Error('API Laravel non configurée');
-    const res = await fetch(`${this.baseUrl}/api/entites-organisationnelles/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${this.baseUrl}/api/entites-organisationnelles/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: buildHeaders(),
     });

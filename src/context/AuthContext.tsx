@@ -2,7 +2,7 @@ import { profileRequest } from '../services/profileService';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Utilisateur, Role, Permission } from '../types';
 import { adminService } from '../services/adminService';
-import { laravelApiService } from '../services/laravelApiService';
+import { laravelApiService, getAuthToken } from '../services/laravelApiService';
 import { formulaireCourrierService } from '../services/formulaireCourrierService';
 
 interface AuthContextType {
@@ -194,100 +194,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const savedUser = typeof localStorage !== 'undefined' ? localStorage.getItem('user') : null;
     const parsed = savedUser ? (() => { try { return JSON.parse(savedUser); } catch { return null; } })() : null;
 
-    // Timeout de sécurité : si l'API ne répond pas, afficher l'interface après 12s (données en cache ou login)
-    const AUTH_LOAD_TIMEOUT_MS = 12000;
-    const timeoutId = setTimeout(() => {
-      setAuthReady(prev => {
-        if (prev) return prev;
-        setUser(parsed ?? null);
-        setLocked(false);
-        console.warn('Session: chargement interrompu après 12s. Interface affichée (données en cache ou page de connexion).');
-        return true;
-      });
-    }, AUTH_LOAD_TIMEOUT_MS);
-
-    const isNetworkError = (e: unknown): boolean => {
-      const msg = e instanceof Error ? e.message : String(e);
-      return /failed to fetch|networkerror|load failed|network request failed/i.test(msg);
-    };
-
-    const restoreSession = async () => {
-      const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('user') : null;
-      const parsedUser = saved ? (() => { try { return JSON.parse(saved); } catch { return null; } })() : null;
-
-      if (localStorage.getItem('session_locked') === 'true' && parsedUser?.email) {
-        laravelApiService.clearAuthToken();
-        setUser(parsedUser); setLocked(true); setAuthReady(true); return;
-      }
-
-      if (laravelApiService.isConfigured()) {
-        await Promise.all([adminService.refreshUsersFromApi(), adminService.refreshRolesFromApi()]);
-        const token = typeof localStorage !== 'undefined' ? localStorage.getItem('laravel_token') : null;
-        if (token) {
-          try {
-            const me = await laravelApiService.getMe();
-            if (me) {
-              setUser(me);
-              localStorage.setItem('user', JSON.stringify(me));
-              setLocked(false);
-              await formulaireCourrierService.getConfigAsync().catch(() => {});
-              setAuthReady(true);
-              return;
-            }
-          } catch (e) {
-            if (isNetworkError(e) && parsedUser) {
-              setUser(parsedUser);
-              setLocked(false);
-              setAuthReady(true);
-              return;
-            }
-          }
-          // Token expiré ou invalide : verrouiller au lieu de déconnecter (garder user pour l'email)
-          laravelApiService.clearAuthToken();
-          if (parsedUser?.email) {
-            setUser(parsedUser);
-            setLocked(true);
-          } else {
-            setUser(null);
-            localStorage.removeItem('user');
-          }
-          setAuthReady(true);
-          return;
-        }
-        if (saved && parsedUser?.email) {
-          try {
-            const newToken = await laravelApiService.getTokenByEmail(parsedUser.email);
-            if (newToken) {
-              laravelApiService.setAuthToken(newToken);
-              const me = await laravelApiService.getMe();
-              if (me) {
-                setUser(me);
-                localStorage.setItem('user', JSON.stringify(me));
-                setLocked(false);
-                await formulaireCourrierService.getConfigAsync().catch(() => {});
-                setAuthReady(true);
-                return;
-              }
-            }
-          } catch (e) {
-            if (isNetworkError(e) && parsedUser) {
-              setUser(parsedUser);
-              setLocked(false);
-              setAuthReady(true);
-              return;
-            }
-          }
-        }
-        setUser(null);
-        localStorage.removeItem('user');
-        setLocked(false);
-        setAuthReady(true);
-        return;
-      }
-      if (saved) setUser(parsedUser);
+    let disposed = false;
+    let settled = false;
+    const api = laravelApiService.isConfigured();
+    const showLocked = () => {
+      if (disposed) return;
+      settled = true;
+      laravelApiService.clearAuthToken();
+      setUser(parsed?.email ? parsed : null);
+      setLocked(Boolean(parsed?.email));
+      if (parsed?.email) localStorage.setItem('session_locked', 'true');
       setAuthReady(true);
     };
-    restoreSession().finally(() => clearTimeout(timeoutId));
+    const expired = () => {
+      laravelApiService.clearAuthToken();
+      localStorage.setItem('session_locked', 'true');
+      setLocked(true);
+    };
+    window.addEventListener('auth:expired', expired);
+    const timeoutId = setTimeout(() => { if (!settled && api) showLocked(); }, 12000);
+    const restoreSession = async () => {
+      if (!api) {
+        if (!disposed) { setUser(parsed); setAuthReady(true); settled = true; }
+        return;
+      }
+      if (localStorage.getItem('session_locked') === 'true' || !getAuthToken()) {
+        showLocked();
+        return;
+      }
+      try {
+        // Validate the JWT before loading any privileged lists or displaying cached identity as active.
+        const me = await laravelApiService.getMe();
+        if (disposed || settled) return;
+        if (!me) { showLocked(); return; }
+        settled = true;
+        setUser(me); setLocked(false);
+        localStorage.setItem('user', JSON.stringify(me));
+        setAuthReady(true);
+        void Promise.allSettled([adminService.refreshUsersFromApi(), adminService.refreshRolesFromApi(), formulaireCourrierService.getConfigAsync()]);
+      } catch {
+        showLocked();
+      }
+    };
+    void restoreSession().finally(() => clearTimeout(timeoutId));
+    return () => { disposed = true; clearTimeout(timeoutId); window.removeEventListener('auth:expired', expired); };
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
@@ -402,7 +352,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithGoogle,
         logout,
         unlockWithPassword,
-        isAuthenticated: !!user,
+        isAuthenticated: !!user && !locked,
         hasRole,
         hasPermission,
         hasAccessToDirection,

@@ -1,4 +1,4 @@
-import { getAuthToken, getBaseUrl } from './laravelApiService';
+import { getAuthToken, getBaseUrl, apiFetch } from './laravelApiService';
 import { Utilisateur } from '../types';
 export type Channels = { app: boolean; email: boolean; sms: boolean; whatsapp: boolean };
 export interface Profile extends Utilisateur {
@@ -16,7 +16,7 @@ export async function profileRequest<T>(path: string, body?: unknown, method = '
   const base = getBaseUrl();
   if (!base) throw new Error('API non configurée.');
   const multipart = body instanceof FormData;
-  const response = await fetch(`${base}/api/${path}`, {
+  const response = await apiFetch(`${base}/api/${path}`, {
     method: body === undefined ? 'GET' : method, signal,
     headers: { Accept: 'application/json', ...(!multipart ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${getAuthToken() || ''}` },
     body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
