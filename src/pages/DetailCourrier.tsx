@@ -205,7 +205,7 @@ const DetailCourrier: React.FC = () => {
   // (direction / division / service / …) ; 'user:<id>' = utilisateur précis.
   const [annTarget, setAnnTarget] = useState<string>('');
   const [annTargetEntities, setAnnTargetEntities] = useState<Array<{ id: string; nom: string; type: string }>>([]);
-  const [annTargetUsers, setAnnTargetUsers] = useState<Array<{ id: string; nom: string; role: string }>>([]);
+  const [annTargetUsers, setAnnTargetUsers] = useState<Array<{ id: string; nom: string; role: string; entiteId?: string }>>([]);
   const [dossiersFichiers, setDossiersFichiers] = useState<CategorieFichier[]>([]);
   const [expandedDossiers, setExpandedDossiers] = useState<Set<string>>(new Set());
   const [showViewFileModal, setShowViewFileModal] = useState(false);
@@ -1172,7 +1172,7 @@ const DetailCourrier: React.FC = () => {
   // ——— P1 : Annotations sur le document (PDF, style Word/PDF) ———
   // Réservé au Directeur Général (+ SUPER_ADMIN technique)
   const canAnnotateDocument =
-    annotationAccess.allowed && (hasRole(Role.DIRECTEUR_GENERAL) || hasRole(Role.SUPER_ADMIN));
+    annotationAccess.allowed && hasRole(Role.DIRECTEUR_GENERAL);
 
   // P10 — Chargement des cibles possibles (entités + utilisateurs) quand le DG
   // ouvre la visionneuse. Entités : API Laravel (vrais IDs de la base) ;
@@ -1196,8 +1196,8 @@ const DetailCourrier: React.FC = () => {
       setAnnTargetUsers(
         adminService
           .getAllUsers()
-          .filter((u) => u.actif !== false && u.id !== user?.id && u.nom)
-          .map((u) => ({ id: u.id, nom: u.nom, role: u.role }))
+          .filter((u) => u.actif !== false && u.id !== user?.id && u.nom && u.entiteId && u.role !== Role.SUPER_ADMIN && u.role !== Role.DIRECTEUR_GENERAL)
+          .map((u) => ({ id: u.id, nom: u.nom, role: u.role, entiteId: u.entiteId }))
       );
     };
     adminService.refreshUsersFromApi().then(loadUsers).catch(loadUsers);
@@ -2875,7 +2875,7 @@ const DetailCourrier: React.FC = () => {
                   className="bg-slate-800 text-slate-100 text-xs rounded-md border border-slate-600 px-1.5 py-0.5 max-w-[220px] focus:outline-none focus:ring-1 focus:ring-indigo-400"
                   title="Cible de l'étape workflow créée avec l'annotation (direction, division, service, bureau ou utilisateur)"
                 >
-                  <option value="">Enregistreur du courrier</option>
+                  <option value="">Annotation sans nouvelle affectation</option>
                   {annTargetGroups.map(
                     (g) =>
                       g.items.length > 0 && (
@@ -2888,15 +2888,14 @@ const DetailCourrier: React.FC = () => {
                         </optgroup>
                       )
                   )}
-                  {annTargetUsers.length > 0 && (
-                    <optgroup label="Autre — utilisateur précis">
-                      {annTargetUsers.map((u) => (
-                        <option key={'user:' + u.id} value={'user:' + u.id}>
-                          {u.nom} ({u.role})
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
+                  {annTargetEntities.map((entity) => {
+                    const users = annTargetUsers.filter((person) => person.entiteId === entity.id);
+                    return users.length > 0 ? (
+                      <optgroup key={'users:' + entity.id} label={'Utilisateurs — ' + entity.nom}>
+                        {users.map((person) => <option key={'user:' + person.id} value={'user:' + person.id}>{person.nom} ({person.role})</option>)}
+                      </optgroup>
+                    ) : null;
+                  })}
                 </select>
               </label>
             )}
