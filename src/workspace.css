@@ -203,3 +203,29 @@
 
 .procedure-circuit-diagram{padding:22px;margin:24px 0 0;border:1px solid #d6e3f7;border-radius:16px;background:radial-gradient(#cbdcf2 1px,transparent 1px) 0 0/18px 18px,#f7faff}.procedure-circuit-diagram figcaption{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:24px}.procedure-circuit-diagram h4{font-size:17px;font-weight:700;color:#1e3a8a;margin-top:5px}.procedure-circuit-urgency{background:#e6efff;color:#2458ad;border:1px solid #c6d8f8;border-radius:20px;padding:6px 12px;font-size:11px;font-weight:700}.procedure-circuit-terminal{width:fit-content;max-width:100%;margin:auto;padding:10px 18px;border:1px solid #a8c5f3;border-radius:24px;background:#ecf3ff;color:#254f93;font-size:12px;font-weight:600;text-align:center}.procedure-circuit-terminal.is-end{background:#edf8f3;border-color:#b3d9c8;color:#277255}.procedure-circuit-diagram ol{margin:0;padding:0;list-style:none}.procedure-circuit-diagram li{display:flex;flex-direction:column;align-items:center}.procedure-circuit-arrow{display:block;width:24px;height:38px;margin:0 auto;color:#6d98da}.procedure-circuit-diagram article{width:100%;display:flex;align-items:center;gap:12px;padding:16px;background:#fff;border:1px solid #cadbf3;border-radius:12px;box-shadow:0 3px 10px #1e3a8a08}.procedure-circuit-number{display:grid;place-items:center;width:32px;height:32px;flex-shrink:0;background:#2563eb;color:#fff;border-radius:10px;font-size:12px;font-weight:700}.procedure-circuit-diagram article>div{flex:1;min-width:0}.procedure-circuit-diagram h5{font-size:13px;font-weight:700;color:#1e3a8a;overflow-wrap:anywhere}.procedure-circuit-diagram article p{font-size:12px;color:#526581;margin:5px 0}.procedure-circuit-diagram article small{font-size:10px;color:#73839b}.procedure-circuit-diagram article>strong{font-size:11px;background:#f0f5ff;border-radius:6px;padding:6px;color:#2858a0;white-space:nowrap}@media(max-width:640px){.procedure-circuit-diagram{padding:14px}.procedure-circuit-diagram article{flex-wrap:wrap}.procedure-circuit-diagram article>strong{margin-left:44px}}
 .batch-inline-entities{display:grid;gap:8px;min-width:0;padding:10px;border:1px solid #d6e3f7;border-radius:10px;background:#f8fbff}.batch-entity-caption{font-size:10px;color:#2858a0;font-weight:700}.batch-inline-entities label{display:grid;gap:4px;min-width:0}.batch-inline-entities label>span{font-size:10px;color:#536987;font-weight:600}.batch-inline-entities select{width:100%;min-width:0;min-height:36px;padding:7px;border:1px solid #c7d8ee;border-radius:7px;background:#fff;color:#334155;font-size:11px}.batch-inline-entities select:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+
+/* Saisie par lot : cartes lisibles sur tablette et téléphone. */
+.batch-entry .batch-detail-body{line-height:1.55}
+.batch-entry .batch-detail-body label{color:#334155}
+.batch-entry .batch-detail-body input,.batch-entry .batch-detail-body select,.batch-entry .batch-detail-body textarea{min-height:44px;font-size:1rem}
+.batch-entry .batch-inline-entities label{min-width:0}
+@media(max-width:1023px){
+ .batch-entry,.batch-entry .batch-table-area,.batch-entry fieldset{min-width:0;max-width:100%}
+ .batch-entry .batch-table-area{padding-left:12px;padding-right:12px}
+ .batch-entry table,.batch-entry tbody{display:block;width:100%;min-width:0;table-layout:auto}
+ .batch-entry thead{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+ .batch-entry table caption{display:block;text-align:left;padding:16px;white-space:normal;line-height:1.6}
+ .batch-entry tr[data-entry-row]{display:grid;grid-template-columns:minmax(0,1fr);margin:12px;border:1px solid #cbd5e1;border-radius:14px;overflow:hidden;cursor:default}
+ .batch-entry tr[data-entry-row]>td{display:block;width:100%;min-width:0;padding:10px 14px;box-sizing:border-box}
+ .batch-entry tr[data-entry-row]>td:first-child{text-align:left;background:#f1f5f9}
+ .batch-entry tr:not([data-entry-row]),.batch-entry tr:not([data-entry-row])>td{display:block;width:100%;min-width:0;box-sizing:border-box}
+ .batch-entry input,.batch-entry select,.batch-entry textarea{width:100%;max-width:100%;min-width:0;min-height:44px;font-size:16px}
+ .batch-entry input[type=checkbox],.batch-entry input[type=radio]{width:auto;min-height:auto}
+ .batch-entry .batch-inline-actions{justify-content:flex-end;gap:12px}
+ .batch-entry .batch-inline-actions button{min-width:44px;min-height:44px}
+ .batch-entry .batch-detail-card{margin:8px 12px;max-width:calc(100% - 24px)}
+ .batch-entry .batch-detail-body{padding:16px}
+ .batch-entry .batch-detail-reference{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+ .batch-entry .batch-overview,.batch-entry .batch-metrics,.batch-entry .batch-register{flex-wrap:wrap;gap:12px}
+ .batch-entry .batch-files-heading{white-space:normal}
+}

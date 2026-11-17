@@ -345,19 +345,20 @@ const EnregistrerCourrier: React.FC = () => {
   // Charger la configuration du formulaire
   const [formConfig, setFormConfig] = useState<ExtraFieldsBySensAndType | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(true);
+  const [configError, setConfigError] = useState(false);
 
   useEffect(() => {
     const loadFormConfig = async () => {
       try {
         // Affichage immédiat avec la config en cache (ou défaut si cache vide)
-        const syncConfig = formulaireCourrierService.getConfig();
-        setFormConfig(syncConfig);
+        setConfigError(false);
         // Puis charger depuis l'API pour avoir la config à jour (normalizeApiConfig applique withDefault)
         const asyncConfig = await formulaireCourrierService.getConfigAsync();
         setFormConfig(asyncConfig);
       } catch (error) {
         console.error('Erreur chargement configuration formulaire:', error);
-        setFormConfig(formulaireCourrierService.getConfig());
+        setConfigError(true);
+        setFormConfig(null);
       } finally {
         setLoadingConfig(false);
       }
@@ -649,7 +650,8 @@ const EnregistrerCourrier: React.FC = () => {
   };
 
   // Obtenir tous les champs à afficher — uniquement les champs dynamiques configurés
-  const getAllFields = () => formulaireCourrierService.getConfig()[formData.sens]?.[formData.type] || [];
+  const getAllFields = () => formConfig?.[formData.sens]?.[formData.type] || [];
+  const participantConfigured = (name: string) => getAllFields().some(section => section.columns?.some(column => column.fields?.some(field => field.name === name)));
 
   // S'assurer que la date de réception est toujours initialisée
   useEffect(() => {
@@ -859,6 +861,8 @@ const EnregistrerCourrier: React.FC = () => {
     }
   };
   
+  const canGoToNextStepForConfiguredFields = () => !loadingConfig && !configError && formConfig !== null && getAllFields().every(section => (section.columns || []).every(column => (column.fields || []).every(field => !field.required || (formData[field.name] !== undefined && formData[field.name] !== null && String(formData[field.name]).trim() !== ''))));
+
   const canGoToNextStep = () => {
     if (currentStep === 1) {
       // Vérifier sens et type uniquement - les entités organisationnelles sont optionnelles
@@ -866,22 +870,7 @@ const EnregistrerCourrier: React.FC = () => {
       return hasSensAndType;
     }
     if (currentStep === 2) {
-      // Vérifier les champs paramétrés obligatoires ou par défaut
-      const allFields = getAllFields();
-      const requiredFields = allFields.flatMap((section: any) => 
-        section.columns?.flatMap((column: any) => 
-          column.fields?.filter((field: any) => field.required) || []
-        ) || []
-      );
-      
-      // Vérifier que tous les champs obligatoires sont remplis
-      const allRequiredFilled = requiredFields.every((field: any) => {
-        const value = formData[field.name];
-        return value !== undefined && value !== null && value !== '';
-      });
-      
-      // Pour les courriers INTERNES, vérifier que l'entité appropriée est renseignée selon le sens
-      return allRequiredFilled;
+      return canGoToNextStepForConfiguredFields();
     }
     if (currentStep === 3) {
       // En mode édition, permettre de passer si des fichiers existants sont présents
@@ -1078,6 +1067,7 @@ const EnregistrerCourrier: React.FC = () => {
       alert('Vous n\'êtes pas autorisé à créer un courrier externe. Cette action est réservée au Secrétaire de la Direction Générale.');
       return;
     }
+    if (!canGoToNextStepForConfiguredFields()) { showAlert('Complétez les champs obligatoires configurés dans Paramétrages.', 'error'); return; }
     setLoading(true);
     try {
       let courrierId: string;
@@ -1881,7 +1871,8 @@ const EnregistrerCourrier: React.FC = () => {
                           (Chargement...)
                         </span>
                       )}
-                      {!loadingConfig && getAllFields().length === 0 && (
+                      {configError && <span role="alert" className="block text-rose-700">Impossible de charger le formulaire configuré. <button type="button" className="underline" onClick={() => window.location.reload()}>Réessayer</button></span>}
+                      {!loadingConfig && !configError && getAllFields().length === 0 && (
                         <span className="ml-2 text-rose-600 font-medium">
                           — Aucun champ configuré pour cette combinaison. Veuillez paramétrer le formulaire.
                         </span>
@@ -1892,20 +1883,21 @@ const EnregistrerCourrier: React.FC = () => {
                 
                 <div className="space-y-6">
                     {getAllFields().map((section: any) => (
-                      <div key={section.id} className="space-y-4">
+                      <div key={section.id} className="space-y-4" style={section.style}>
                         {/* Afficher le titre de section si existant et différent de 'Infos' */}
-                        {section.label && section.label !== 'Infos' && (
+                        {section.label && (
                           <h4 className="text-lg font-bold text-surface-900 border-b border-surface-200 pb-2">
                             {section.label}
                           </h4>
                         )}
                         
-                        <div className={`grid gap-4 ${(section.columns?.length ?? 0) > 1 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+                        {section.placeholder && <p className="text-sm leading-relaxed text-slate-600">{section.placeholder}</p>}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                           {section.columns?.map((column: any) => (
-                            <div key={column.id} className="space-y-4">
+                            <div key={column.id} className={`space-y-4 ${['lg:col-span-1','lg:col-span-2','lg:col-span-3','lg:col-span-4','lg:col-span-5','lg:col-span-6','lg:col-span-7','lg:col-span-8','lg:col-span-9','lg:col-span-10','lg:col-span-11','lg:col-span-12'][Math.max(1,Math.min(12,column.width || 12))-1]}`} style={column.style}>
                               {column.fields?.map((field: any) => (
                                 <div key={field.id} className="space-y-3">
-                                  <label className="flex items-center gap-2 text-sm font-bold text-surface-700 uppercase tracking-wide">
+                                  <label className="flex items-center gap-2 text-sm font-semibold leading-relaxed text-slate-700">
                                     <FontAwesomeIcon icon={faTag} className="text-indigo-500" />
                                     {field.label}
                                     {field.required && (
@@ -1913,6 +1905,14 @@ const EnregistrerCourrier: React.FC = () => {
                                     )}
                                   </label>
                                   
+                                  {formData.type === TypeCourrier.INTERNE && field.type === 'text' && ['expediteur', 'destinataire'].includes(field.name) && <div className="space-y-3">
+                                    {filterLevels.map((level, idx) => {
+                                      const cascade = field.name === 'expediteur' ? entiteEmetteur : entiteDestinataire;
+                                      const parentId = getParentIdForLevel(idx, cascade);
+                                      if (idx > 0 && !parentId) return null;
+                                      return <label key={level.code} className="block text-sm font-medium text-slate-700">{level.libelleSingulier}<select value={cascade[level.code] || ''} onChange={event => field.name === 'expediteur' ? handleEntiteEmetteurChange(level.code,event.target.value,idx) : handleEntiteDestinataireChange(level.code,event.target.value,idx)} disabled={areEntitiesLocked} className="mt-1 w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"><option value="">Sélectionner…</option>{getEntitiesForLevel(level.code,parentId).map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
+                                    })}
+                                  </div>}
                                   {/* Champ de type DATE ou DATETIME avec Material Design */}
                                   {(field.type === 'date' || field.type === 'datetime') && (
                                   <div className="bg-white rounded-2xl border-2 border-surface-200 p-5 shadow-sm hover:shadow-md transition-shadow col-span-full">
@@ -2019,7 +2019,7 @@ const EnregistrerCourrier: React.FC = () => {
                                 {!(field.type === 'date' || field.type === 'datetime') && 
                                  !((field.name || '').toLowerCase().includes('urgenc') || (field.label || '').toLowerCase().includes('urgenc')) && (
                                   <div>
-                                    {field.type === 'text' && (
+                                    {field.type === 'text' && !(formData.type === TypeCourrier.INTERNE && ['expediteur', 'destinataire'].includes(field.name)) && (
                                         <div className="bg-white rounded-2xl border-2 border-surface-200 p-5 shadow-sm hover:shadow-md transition-shadow">
                                         <div className="relative">
                                           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -2198,126 +2198,7 @@ const EnregistrerCourrier: React.FC = () => {
               </div>
 
               {/* ===== ENTITÉS ORGANISATIONNELLES (COURRIER INTERNE) ===== */}
-              {formData.type === TypeCourrier.INTERNE && filterLevels.length > 0 && (
-                <div className="mt-8 pt-6 border-t-2 border-surface-200">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg bg-gradient-to-r ${
-                      formData.sens === SensCourrier.ENTRANT
-                        ? 'from-blue-500 to-indigo-600'
-                        : 'from-emerald-500 to-teal-600'
-                    }`}>
-                      <FontAwesomeIcon icon={faBuilding} className="text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-surface-900">Organisation Interne</h3>
-                      <p className="text-sm text-surface-600">
-                        {formData.sens === SensCourrier.ENTRANT
-                          ? 'Sélectionnez le service / département expéditeur'
-                          : 'Sélectionnez le service / département destinataire'}
-                      </p>
-                    </div>
-                  </div>
 
-                  {/* ENTRANT → Entité Émettrice */}
-                  {formData.sens === SensCourrier.ENTRANT && (
-                    <div className="bg-blue-50 rounded-2xl border-2 border-blue-200 p-5">
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                          <FontAwesomeIcon icon={faBuilding} className="text-white text-xs" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-blue-900 text-sm">Entité Émettrice</h4>
-                          <p className="text-xs text-blue-600">Service / département expéditeur</p>
-                        </div>
-                        {areEntitiesLocked && (
-                          <span className="ml-auto text-xs text-amber-700 bg-amber-100 px-2 py-1 rounded-lg flex items-center gap-1">
-                            <FontAwesomeIcon icon={faLock} className="w-3 h-3" />
-                            Verrouillé
-                          </span>
-                        )}
-                      </div>
-                      <div className="space-y-3">
-                        {filterLevels.map((level, idx) => {
-                          const parentId = getParentIdForLevel(idx, entiteEmetteur);
-                          const options = getEntitiesForLevel(level.code, parentId);
-                          const isVisible = idx === 0 || !!getParentIdForLevel(idx, entiteEmetteur);
-                          if (!isVisible) return null;
-                          return (
-                            <div key={level.code} className="space-y-1">
-                              <label className="text-xs font-semibold text-blue-800 uppercase tracking-wide">
-                                {level.libelleSingulier}
-                              </label>
-                              <select
-                                value={entiteEmetteur[level.code] || ''}
-                                onChange={(e) => handleEntiteEmetteurChange(level.code, e.target.value, idx)}
-                                disabled={areEntitiesLocked}
-                                className="w-full px-3 py-2.5 border-2 border-blue-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white text-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
-                                <option value="">— Sélectionner —</option>
-                                {options.map(e => (
-                                  <option key={e.id} value={e.id}>{e.nom}</option>
-                                ))}
-                              </select>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {formData.expediteur && (
-                        <p className="mt-3 text-xs text-blue-800 bg-white/70 px-3 py-2 rounded-lg flex items-center gap-2 font-medium">
-                          <FontAwesomeIcon icon={faCheck} className="text-blue-500" />
-                          {formData.expediteur}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* SORTANT → Entité Destinataire */}
-                  {formData.sens === SensCourrier.SORTANT && (
-                    <div className="bg-emerald-50 rounded-2xl border-2 border-emerald-200 p-5">
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
-                          <FontAwesomeIcon icon={faBuilding} className="text-white text-xs" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-emerald-900 text-sm">Entité Destinataire</h4>
-                          <p className="text-xs text-emerald-600">Service / département destinataire</p>
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        {filterLevels.map((level, idx) => {
-                          const parentId = getParentIdForLevel(idx, entiteDestinataire);
-                          const options = getEntitiesForLevel(level.code, parentId);
-                          const isVisible = idx === 0 || !!getParentIdForLevel(idx, entiteDestinataire);
-                          if (!isVisible) return null;
-                          return (
-                            <div key={level.code} className="space-y-1">
-                              <label className="text-xs font-semibold text-emerald-800 uppercase tracking-wide">
-                                {level.libelleSingulier}
-                              </label>
-                              <select
-                                value={entiteDestinataire[level.code] || ''}
-                                onChange={(e) => handleEntiteDestinataireChange(level.code, e.target.value, idx)}
-                                className="w-full px-3 py-2.5 border-2 border-emerald-200 rounded-xl focus:border-emerald-500 focus:outline-none bg-white text-sm"
-                              >
-                                <option value="">— Sélectionner —</option>
-                                {options.map(e => (
-                                  <option key={e.id} value={e.id}>{e.nom}</option>
-                                ))}
-                              </select>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {formData.destinataire && (
-                        <p className="mt-3 text-xs text-emerald-800 bg-white/70 px-3 py-2 rounded-lg flex items-center gap-2 font-medium">
-                          <FontAwesomeIcon icon={faCheck} className="text-emerald-500" />
-                          {formData.destinataire}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           </div>
           )}
@@ -2659,14 +2540,14 @@ const EnregistrerCourrier: React.FC = () => {
                           <h4 className="font-bold text-slate-900">Participants</h4>
                         </div>
                         <div className="space-y-2">
-                          <div className="flex justify-between">
+                          {participantConfigured('expediteur') && <div className="flex justify-between">
                             <span className="text-slate-600">Expéditeur:</span>
                             <span className="font-bold text-slate-900 truncate">{expVal}</span>
-                          </div>
-                          <div className="flex justify-between">
+                          </div>}
+                          {participantConfigured('destinataire') && <div className="flex justify-between">
                             <span className="text-slate-600">Destinataire:</span>
                             <span className="font-bold text-slate-900 truncate">{destVal}</span>
-                          </div>
+                          </div>}
                           <div className="flex justify-between">
                             <span className="text-slate-600">Urgence:</span>
                             <span className={`font-bold truncate ${

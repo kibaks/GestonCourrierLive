@@ -289,7 +289,7 @@ const loadFromLocalStorage = (): ExtraFieldsBySensAndType => {
 
 /** Retourne la valeur ou le défaut si vide (tableau vide [] est truthy mais invalide). */
 const withDefault = (val: FormStructure | undefined, fallback: FormStructure): FormStructure =>
-  (!val || (Array.isArray(val) && val.length === 0)) ? fallback : val;
+  Array.isArray(val) ? val : fallback;
 
 /** Normalise la réponse API Laravel (Record) en ExtraFieldsBySensAndType. */
 const normalizeApiConfig = (data: Record<string, unknown> | null): ExtraFieldsBySensAndType => {
@@ -343,10 +343,7 @@ const loadFromStorage = async (): Promise<ExtraFieldsBySensAndType> => {
         }
         return config;
       } catch (e) {
-        console.warn('Configuration formulaire : erreur API, repli localStorage', e);
-        const config = loadFromLocalStorage();
-        cachedConfig = config;
-        return config;
+        throw e;
       }
     }
     if (typeof window !== 'undefined' && import.meta.env.DEV) {
@@ -357,7 +354,7 @@ const loadFromStorage = async (): Promise<ExtraFieldsBySensAndType> => {
     return config;
   })();
   loadingPromise = p;
-  p.finally(() => { loadingPromise = null; });
+  void p.then(() => { loadingPromise = null; }, () => { loadingPromise = null; });
   return p;
 };
 
@@ -473,7 +470,7 @@ export const formulaireCourrierService = {
   /**
    * Retourne tous les champs à afficher pour un sens+type, dans l'ordre du formulaire.
    * Utilisé pour le résumé, le modal et le détail du courrier (affichage uniquement des champs configurés).
-   * Les champs essentiels (expediteur, destinataire) sont toujours affichés même s'ils ne sont pas dans la config.
+   * Aucun participant absent de la configuration n’est ajouté automatiquement.
    */
   getDisplayFields(sens: SensCourrier, type: TypeCourrier): Array<{ id: string; name: string; label: string; type?: ExtraFieldType; icon?: string }> {
     const config = this.getConfig()[sens]?.[type] || [];
@@ -496,45 +493,7 @@ export const formulaireCourrierService = {
       });
     });
     
-    // Courriers sortants externes : ne pas afficher Expéditeur, et s'assurer que Destinataire est toujours affiché
-    if (sens === SensCourrier.SORTANT && type === TypeCourrier.EXTERNE) {
-      const filtered = list.filter((f) => f.name !== 'expediteur');
-      const hasDestinataire = filtered.some((f) => f.name === 'destinataire');
-      if (!hasDestinataire) {
-        filtered.unshift({
-          id: 'destinataire',
-          name: 'destinataire',
-          label: 'Destinataire',
-          type: undefined,
-          icon: 'building',
-        });
-      }
-      return filtered;
-    }
-    
-    // Pour tous les autres types de courriers, s'assurer que expediteur et destinataire sont affichés
-    const hasExpediteur = list.some((f) => f.name === 'expediteur');
-    const hasDestinataire = list.some((f) => f.name === 'destinataire');
-    
-    if (!hasExpediteur) {
-      list.unshift({
-        id: 'expediteur',
-        name: 'expediteur',
-        label: 'Expéditeur',
-        type: undefined,
-        icon: 'envelope',
-      });
-    }
-    if (!hasDestinataire) {
-      list.unshift({
-        id: 'destinataire',
-        name: 'destinataire',
-        label: 'Destinataire',
-        type: undefined,
-        icon: 'envelope-open',
-      });
-    }
-    
+    // Les paramètres déterminent seuls les champs affichés, quel que soit le sens.
     return list;
   },
 };

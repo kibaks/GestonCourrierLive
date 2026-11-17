@@ -67,7 +67,7 @@ const makeRow = (defaults: RowDefaults = {}): RowData => ({
 });
 const validate = (r: RowData, cols: ExtraFieldConfig[]): RowError => {
   const e: RowError = {};
-  for(const key of ['dateReception','objet','expediteur','destinataire'] as const)if(!r[key].trim())e[key]='Requis';
+  if(!r.dateReception.trim())e.dateReception='Requis';
   if(r.dateReception&&Number.isNaN(new Date(r.dateReception).getTime()))e.dateReception='Date invalide';
   for(const key of ['expediteur','destinataire'] as const)if(r[key].length>255)e[key]='255 caractères maximum';
   cols.forEach(col => {
@@ -240,6 +240,7 @@ const EnregistrerCourrierListe: React.FC = () => {
   const INLINE_TYPES = new Set(['text', 'email', 'number', 'phone', 'url', 'date', 'datetime', 'select', 'radio', 'checkbox', 'slider', 'urgency', 'textarea']);
   // Champs essentiels à afficher dans le tableau (le reste va dans l'expandable)
   const ESSENTIAL_TABLE_FIELDS = new Set(['expediteur', 'destinataire', 'objet', 'referenceExterne', 'dateReception']);
+  const configuredField = (name: string) => extraColumns.find(field => field.name === name);
 
   const [referenceLoading, setReferenceLoading] = useState(true);
   const [referenceError, setReferenceError] = useState('');
@@ -1318,8 +1319,8 @@ const EnregistrerCourrierListe: React.FC = () => {
       <React.Fragment key={row.id}>
         <tr
           className={`${rowBg} ${lborder} hover:bg-blue-50/20 focus-within:bg-blue-50/60 focus-within:ring-2 focus-within:ring-blue-400/30 focus-within:border-blue-200 transition-all group ${isDragged ? 'cursor-grabbing' : 'cursor-grab'}`}
-          id={`batch-row-${row.id}`} tabIndex={-1} aria-label={`Courrier ligne ${rows.findIndex(item=>item.id===row.id)+1}`}
-          draggable={!saving&&st !== 'saved'}
+          data-entry-row="true" id={`batch-row-${row.id}`} tabIndex={-1} aria-label={`Courrier ligne ${rows.findIndex(item=>item.id===row.id)+1}`}
+          draggable={!saving&&st !== 'saved' && window.matchMedia('(min-width: 1024px)').matches}
           onDragStart={(e) => handleRowDragStart(e, row.id)}
           onDragEnd={handleRowDragEnd}
           style={{ marginLeft: `${level * 20}px` }}
@@ -1330,38 +1331,32 @@ const EnregistrerCourrierListe: React.FC = () => {
           {/* Colonne 2: Expediteur/Destinataire */}
           <td className="px-2 py-1.5">
             <div className="batch-letter-reference"><span>N° de lettre</span><strong>{letterNumberLoading ? 'Chargement…' : letterNumber || 'À définir dans le registre'}</strong></div>
-            {activeType === TypeCourrier.INTERNE ? (
-              <div className="batch-inline-entities">
-                <span className="batch-entity-caption">{row.sens===SensCourrier.ENTRANT?'Entité émettrice':'Entité destinataire'}</span>
-                {referenceLoading?<span role="status">Chargement de la structure…</span>:filterLevels.map((entityLevel,levelIndex)=>{
-                  const cascade=row.sens===SensCourrier.ENTRANT?row.entiteEmetteur:row.entiteDestinataire;
-                  const parent=getParentIdForLevel(levelIndex,cascade);
-                  if(levelIndex&&!parent)return null;
-                  const options=getEntitiesForLevel(entityLevel.code,parent);
-                  return <label key={entityLevel.code} htmlFor={`batch-entity-${row.id}-${entityLevel.code}`}><span>{entityLevel.libelleSingulier}</span><select id={`batch-entity-${row.id}-${entityLevel.code}`} aria-label={entityLevel.libelleSingulier+' — ligne '+(rows.findIndex(item=>item.id===row.id)+1)} value={cascade[entityLevel.code]||''} onChange={event=>row.sens===SensCourrier.ENTRANT?updEntiteEmetteur(row.id,entityLevel.code,event.target.value,levelIndex):updEntiteDestinataire(row.id,entityLevel.code,event.target.value,levelIndex)} disabled={saving||st==='saved'||referenceLoading}><option value="">Choisir…</option>{options.map(entity=><option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
+            {extraColumns.filter(field => field.name === 'destinataire' || field.name === 'expediteur').map(participant => {
+              const name = participant.name as 'expediteur' | 'destinataire';
+              const field = configuredField(name);
+              if (!field) return null;
+              const cascade = name === 'expediteur' ? row.entiteEmetteur : row.entiteDestinataire;
+              return activeType === TypeCourrier.INTERNE ? <div key={name} className="batch-inline-entities">
+                <span className="batch-entity-caption">{field.label}{field.required ? ' *' : ''}</span>
+                {referenceLoading ? <span role="status">Chargement de la structure…</span> : filterLevels.map((entityLevel,levelIndex) => {
+                  const parent = getParentIdForLevel(levelIndex,cascade);
+                  if(levelIndex && !parent) return null;
+                  return <label key={entityLevel.code} htmlFor={`batch-${name}-${row.id}-${entityLevel.code}`}><span>{entityLevel.libelleSingulier}</span><select id={`batch-${name}-${row.id}-${entityLevel.code}`} value={cascade[entityLevel.code] || ''} onChange={event => name === 'expediteur' ? updEntiteEmetteur(row.id,entityLevel.code,event.target.value,levelIndex) : updEntiteDestinataire(row.id,entityLevel.code,event.target.value,levelIndex)} disabled={saving || st === 'saved' || referenceLoading}><option value="">Choisir…</option>{getEntitiesForLevel(entityLevel.code,parent).map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
                 })}
-                {(err.expediteur||err.destinataire)&&<span role="alert" className="text-xs text-red-600">{err.expediteur||err.destinataire}</span>}
-              </div>
-            ) : (
-              <MaterialInput
-                label={row.sens === SensCourrier.ENTRANT ? 'Expéditeur' : 'Destinataire'}
-                value={row.sens === SensCourrier.ENTRANT ? row.expediteur : row.destinataire}
-                onChange={e => upd(row.id, row.sens === SensCourrier.ENTRANT ? 'expediteur' : 'destinataire', e.target.value)}
-                disabled={saving || st === 'saved'}
-                error={err.expediteur || err.destinataire}
-              />
-            )}
+                {err[name] && <span role="alert" className="text-xs text-red-600">{err[name]}</span>}
+              </div> : <MaterialInput key={name} label={field.label} required={field.required} value={row[name]} onChange={event => upd(row.id,name,event.target.value)} disabled={saving || st === 'saved'} error={err[name]} />;
+            })}
           </td>
           {/* Colonne 3: Objet */}
           <td className="px-2 py-1.5">
-            <MaterialInput
-              label="Objet du courrier"
-              required className="batch-object-input"
+            {configuredField('objet') && <MaterialInput
+              label={configuredField('objet')!.label}
+              required={configuredField('objet')!.required} className="batch-object-input"
               value={row.objet}
               onChange={e => upd(row.id, 'objet', e.target.value)}
               disabled={saving || st === 'saved'}
               error={err.objet}
-            />
+            />}
 
           </td>
           {/* Colonne 4: Urgence (depuis extraFields) */}
@@ -1423,54 +1418,12 @@ const EnregistrerCourrierListe: React.FC = () => {
                 </div>
                 <div className="batch-detail-body">
                   <div className="batch-detail-reference"><label>N° de lettre administratif<input readOnly aria-label={`Numéro de lettre de la ligne ${rows.findIndex(item=>item.id===row.id)+1}`} value={letterNumber} placeholder={letterNumberLoading ? 'Chargement du numéro…' : 'Sélectionner le registre du lot'} /></label><span>Prérempli selon les paramètres · confirmé à l’enregistrement</span></div>
-                  <div className="batch-section-label"><span>01</span> Correspondance</div>
-                  <div className="batch-correspondence-fields">
-                    <MaterialInput required label={row.sens===SensCourrier.ENTRANT?'Destinataire':'Expéditeur'} value={row.sens===SensCourrier.ENTRANT?row.destinataire:row.expediteur} onChange={e=>upd(row.id,row.sens===SensCourrier.ENTRANT?'destinataire':'expediteur',e.target.value)} disabled={saving||st==='saved'} error={row.sens===SensCourrier.ENTRANT?err.destinataire:err.expediteur}/>
-                    <MaterialInput required type="date" label="Date de réception" value={row.dateReception.slice(0,10)} onChange={e=>upd(row.id,'dateReception',e.target.value)} disabled={saving||st==='saved'} error={err.dateReception}/>
-                    <MaterialInput label="Référence du document d’origine" value={row.referenceExterne} onChange={e=>upd(row.id,'referenceExterne',e.target.value)} disabled={saving||st==='saved'}/>
-                  </div>
-                  <div className="batch-section-label"><span>02</span> Organisation et classement</div>
-                  <div className="batch-classification-fields">
-                    <label className="text-xs font-semibold text-slate-600">Dossier<select value={row.folderId} onChange={e=>upd(row.id,'folderId',e.target.value)} className={sel}><option value="">Non classé</option>{folders.map(folder=><option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
-                    {row.type !== TypeCourrier.INTERNE && <>
-                    <label className="text-xs font-semibold text-slate-600">Direction chargée du courrier<select className={sel+' mt-1'} value={row.direction} onChange={e=>upd(row.id,'direction',e.target.value)} disabled={saving||st==='saved'}><option value="">Choisir une direction</option>{Array.from(new Set([...directions.map(direction=>direction.nom),...entities.filter(entity=>['direction','direction_generale'].includes(entity.type)).map(entity=>entity.nom),...(row.direction?[row.direction]:[])])).sort().map(direction=><option key={direction} value={direction}>{direction}</option>)}</select></label>
-                    <label className="text-xs font-semibold text-slate-600">Service chargé du courrier<select className={sel+' mt-1'} value={row.service} onChange={e=>upd(row.id,'service',e.target.value)} disabled={saving||st==='saved'}><option value="">Choisir un service</option>{Array.from(new Set([...svcList.map(service=>service.nom),...(row.service?[row.service]:[])])).sort().map(service=><option key={service} value={service}>{service}</option>)}</select></label>
-                    </>}
-                  </div>
-                  {/* ── Niveau d'urgence ── */}
-                  {(() => {
-                    const urgCol = extraColumns.find(c => c.name.toLowerCase().includes('urgenc') || c.label?.toLowerCase().includes('urgenc'));
-                    if (!urgCol) return null;
-                    const val = row.extraFields[urgCol.name] ?? '';
-                    const numVal = Math.max(1, Math.min(5, Number(val) || 3));
-                    const labels = ['Très faible', 'Faible', 'Moyenne', 'Élevée', 'Urgente'];
-                    const colors = ['#10b981', '#22c55e', '#3b82f6', '#f59e0b', '#ef4444'];
-                    return (
-                      <div className="border-t border-surface-200 pt-4">
-                        <label className="block text-xs font-bold text-surface-600 mb-2 uppercase tracking-wide">{urgCol.label}</label>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-medium px-2 py-1 rounded-full" style={{backgroundColor: colors[numVal-1] + '20', color: colors[numVal-1]}}>
-                            {labels[numVal-1]}
-                          </span>
-                          <input
-                            type="range" min={1} max={5} step={1}
-                            value={numVal}
-                            disabled={saving || st === 'saved'}
-                            onChange={e => updExtra(row.id, urgCol.name, e.target.value)}
-                            style={{background: `linear-gradient(to right, ${colors[numVal-1]} ${((numVal-1)/4)*100}%, #e2e8f0 ${((numVal-1)/4)*100}%)`}}
-                            className="flex-1 h-2 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed"
-                          />
-                          <span className="text-xs font-bold text-surface-500">{numVal}/5</span>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  {/* ── Autres champs dynamiques ── */}
-                  {extraColumns.filter(col => !ESSENTIAL_TABLE_FIELDS.has(col.name) && !col.name.toLowerCase().includes('urgenc') && !col.label?.toLowerCase().includes('urgenc')).length > 0 && (
-                    <div className="border-t border-surface-200 pt-4 mt-4">
-                      <p className="text-xs font-bold text-surface-600 mb-3 uppercase tracking-wide">Autres informations</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {extraColumns.filter(col => !ESSENTIAL_TABLE_FIELDS.has(col.name) && !col.name.toLowerCase().includes('urgenc') && !col.label?.toLowerCase().includes('urgenc')).map(col => {
+                  {(formConfig?.[activeSens]?.[activeType] || []).map(section => <section key={section.id} className="border-t border-surface-200 pt-4 mt-4" style={section.style}>
+                    {section.label && <h4 className="text-sm font-bold text-slate-800 mb-3">{section.label}</h4>}
+                    {section.placeholder && <p className="text-sm text-slate-500 mb-3">{section.placeholder}</p>}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                      {section.columns.map(column => <div key={column.id} className={`space-y-4 ${['lg:col-span-1','lg:col-span-2','lg:col-span-3','lg:col-span-4','lg:col-span-5','lg:col-span-6','lg:col-span-7','lg:col-span-8','lg:col-span-9','lg:col-span-10','lg:col-span-11','lg:col-span-12'][Math.max(1,Math.min(12,column.width || 12))-1]}`} style={column.style}>
+                        {column.fields.filter(field => INLINE_TYPES.has(field.type || 'text')).map(col => {
                           const isDirect = DIRECT_ROW_KEYS.has(col.name);
                           const val = isDirect ? String(row[col.name as keyof RowData] ?? '') : (row.extraFields[col.name] ?? '');
                           const errMsg = err[col.name];
@@ -1531,9 +1484,9 @@ const EnregistrerCourrierListe: React.FC = () => {
                             </div>
                           );
                         })}
-                      </div>
+                      </div>)}
                     </div>
-                  )}
+                  </section>)}
                   {/* ── Fichiers attachés ── */}
                   <div className="border-t border-surface-200 pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
@@ -1727,7 +1680,7 @@ const EnregistrerCourrierListe: React.FC = () => {
           <thead>
             <tr className="bg-gradient-to-r from-surface-50 to-surface-50/50 border-b-2 border-surface-100">
               <th className="px-3 py-3 text-center w-10 text-xs font-bold text-surface-400">#</th>
-              <th className="px-3 py-3 text-left text-xs font-bold text-surface-600 uppercase tracking-wider">{activeSens === SensCourrier.ENTRANT ? 'N° de lettre / Expéditeur' : 'N° de lettre / Destinataire'}</th>
+              <th className="px-3 py-3 text-left text-xs font-bold text-surface-600 uppercase tracking-wider">{['N° de lettre', ...extraColumns.filter(field => field.name === 'expediteur' || field.name === 'destinataire').map(field => field.label)].join(' / ')}</th>
               <th className="px-3 py-3 text-left w-64 text-xs font-bold text-surface-600 uppercase tracking-wider">Objet</th>
               <th className="px-3 py-3 text-center w-28 text-xs font-bold text-surface-600 uppercase tracking-wider">Urgence</th>
               <th className="px-3 py-3 text-left w-40 text-xs font-bold text-surface-600 uppercase tracking-wider">Catégorie</th>
