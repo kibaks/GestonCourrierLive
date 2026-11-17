@@ -1885,7 +1885,7 @@ const EnregistrerCourrier: React.FC = () => {
                   </div>
                 </div>
                 
-                <div className="space-y-6">
+                <div className="courrier-configured-form space-y-6">
                     {getAllFields().map((section: any) => (
                       <div key={section.id} className="space-y-4" style={section.style}>
                         {/* Afficher le titre de section si existant et différent de 'Infos' */}
@@ -1913,7 +1913,7 @@ const EnregistrerCourrier: React.FC = () => {
                                     {filterLevels.map((level, idx) => {
                                       const cascade = field.name === 'expediteur' ? entiteEmetteur : entiteDestinataire;
                                       const parentId = getParentIdForLevel(idx, cascade);
-                                      if (idx > 0 && !parentId) return null;
+                                      if (idx > 0 && (!parentId || getEntitiesForLevel(level.code,parentId).length === 0)) return null;
                                       return <label key={level.code} className="block text-sm font-medium text-slate-700">{level.libelleSingulier}<select value={cascade[level.code] || ''} onChange={event => field.name === 'expediteur' ? handleEntiteEmetteurChange(level.code,event.target.value,idx) : handleEntiteDestinataireChange(level.code,event.target.value,idx)} disabled={areEntitiesLocked && !isSecretaireDG} className="mt-1 w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"><option value="">Sélectionner…</option>{getEntitiesForLevel(level.code,parentId).map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
                                     })}
                                   </div>}
@@ -1961,11 +1961,11 @@ const EnregistrerCourrier: React.FC = () => {
                                         max={5}
                                         step={1}
                                         marks={[
-                                          { value: 1, label: 'Très faible' },
-                                          { value: 2, label: 'Faible' },
-                                          { value: 3, label: 'Moyenne' },
-                                          { value: 4, label: 'Élevée' },
-                                          { value: 5, label: 'Urgente' }
+                                          { value: 1, label: '1' },
+                                          { value: 2, label: '2' },
+                                          { value: 3, label: '3' },
+                                          { value: 4, label: '4' },
+                                          { value: 5, label: '5' }
                                         ]}
                                         valueLabelDisplay="auto"
                                         sx={{

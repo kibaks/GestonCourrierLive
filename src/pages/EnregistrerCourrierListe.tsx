@@ -1435,7 +1435,20 @@ const EnregistrerCourrierListe: React.FC = () => {
                           const inp = `w-full px-3 py-2 rounded-xl border-2 text-sm focus:outline-none ${errMsg ? 'border-red-300 bg-red-50' : 'border-surface-200'} ${dis ? 'opacity-60 cursor-not-allowed' : ''}`;
                           return (
                             <div key={col.name}>
-                              {col.type === 'select' && col.options?.length ? (
+                              {row.type === TypeCourrier.INTERNE && ['expediteur','destinataire'].includes(col.name) ? (
+                                <div className="batch-inline-entities">
+                                  <span className="batch-entity-caption">{col.label}{col.required ? ' *' : ''}</span>
+                                  {filterLevels.map((entityLevel,levelIndex) => {
+                                    const cascade = col.name === 'expediteur' ? row.entiteEmetteur : row.entiteDestinataire;
+                                    const parent = getParentIdForLevel(levelIndex,cascade);
+                                    if(levelIndex && !parent) return null;
+                                    const options = getEntitiesForLevel(entityLevel.code,parent);
+                                    if(levelIndex && options.length === 0) return null;
+                                    return <label key={entityLevel.code} htmlFor={`batch-detail-${col.name}-${row.id}-${entityLevel.code}`}><span>{entityLevel.libelleSingulier}</span><select id={`batch-detail-${col.name}-${row.id}-${entityLevel.code}`} value={cascade[entityLevel.code] || ''} onChange={event => col.name === 'expediteur' ? updEntiteEmetteur(row.id,entityLevel.code,event.target.value,levelIndex) : updEntiteDestinataire(row.id,entityLevel.code,event.target.value,levelIndex)} disabled={dis}><option value="">Choisir…</option>{options.map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
+                                  })}
+                                  {errMsg && <p role="alert" className="text-sm text-red-700">{errMsg}</p>}
+                                </div>
+                              ) : col.type === 'select' && col.options?.length ? (
                                 <MaterialInput label={col.label} value={val} onChange={e => chg(e.target.value)} disabled={dis} error={errMsg} required={col.required} type="select">
                                   <option value="">— Sélectionner —</option>
                                   {col.options.map(o => <option key={o} value={o}>{o}</option>)}
@@ -1445,7 +1458,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                               ) : col.type === 'textarea' ? (
                                 <MaterialInput label={col.label} value={val} onChange={e => chg(e.target.value)} disabled={dis} error={errMsg} required={col.required} multiline rows={3} placeholder={col.placeholder} />
                               ) : col.type === 'slider' ? (
-                                <label className="block text-sm text-slate-700">{col.label} : {val || col.min || 0}<input type="range" className="mt-2 w-full accent-blue-600" min={col.min ?? 0} max={col.max ?? 100} step={col.step ?? 1} value={val || col.min || 0} onChange={e => chg(e.target.value)} disabled={dis} /></label>
+                                <label className="block text-sm text-slate-700">{col.label} : {val || col.min || (col.name.toLowerCase().includes('urgenc') ? 3 : 0)}<input type="range" className="mt-2 w-full accent-blue-600" min={col.min ?? (col.name.toLowerCase().includes('urgenc') ? 1 : 0)} max={col.max ?? (col.name.toLowerCase().includes('urgenc') ? 5 : 100)} step={col.step ?? 1} value={val || col.min || (col.name.toLowerCase().includes('urgenc') ? 3 : 0)} onChange={e => chg(e.target.value)} disabled={dis} /></label>
                               ) : col.type === 'radio' && col.options?.length && col.options.length === 2 ? (
                                 <label className={`relative inline-flex items-center cursor-pointer ${dis ? 'cursor-not-allowed opacity-60' : ''}`}>
                                   <input
@@ -1576,7 +1589,7 @@ const EnregistrerCourrierListe: React.FC = () => {
       {/* Header */}
       <div className="bg-white/95 backdrop-blur border-b border-surface-200 shadow-sm sticky top-0 z-20">
         <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
             <button onClick={() => navigate('/enregistrer')} className="p-2 rounded-xl hover:bg-surface-100 text-surface-400 hover:text-surface-700 transition-colors">
               <FontAwesomeIcon icon={faArrowLeft} />
             </button>
@@ -1584,7 +1597,7 @@ const EnregistrerCourrierListe: React.FC = () => {
               <FontAwesomeIcon icon={faListAlt} className="text-white" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-base font-bold text-surface-900">Enregistrement en liste</h1>
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${
                   activeSens === SensCourrier.ENTRANT ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
@@ -1593,7 +1606,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                   {activeType === TypeCourrier.INTERNE ? 'Interne' : 'Externe'}
                 </span>
               </div>
-              <p className="text-xs text-surface-400 mt-0.5">
+              <p className="text-sm leading-relaxed text-slate-600 mt-1">
                 {rows.length} courrier{rows.length > 1 ? 's' : ''}
                 {' · '}{rows.filter(r => status[r.id] === 'saved').length} enregistré{rows.filter(r => status[r.id] === 'saved').length !== 1 ? 's' : ''}
                 {user?.direction ? ` · ${user.direction}` : ''}

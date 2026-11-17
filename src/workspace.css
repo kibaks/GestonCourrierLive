@@ -229,3 +229,11 @@
  .batch-entry .batch-overview,.batch-entry .batch-metrics,.batch-entry .batch-register{flex-wrap:wrap;gap:12px}
  .batch-entry .batch-files-heading{white-space:normal}
 }
+
+@media(max-width:640px){
+ .courrier-configured-form input,.courrier-configured-form select,.courrier-configured-form textarea{font-size:16px;min-height:44px}
+ .courrier-configured-form .p-5,.courrier-configured-form .p-6{padding:12px}
+ .courrier-configured-form .MuiSlider-markLabel{font-size:12px}
+ .batch-entry .batch-detail-body{color:#334155;font-size:14px}
+ .batch-entry .batch-detail-body h4{font-size:16px;line-height:1.5}
+}
