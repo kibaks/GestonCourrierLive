@@ -764,7 +764,7 @@ const EnregistrerCourrier: React.FC = () => {
   // --- Helpers cascade entités organisationnelles ---
   const getEntitiesForLevel = (typeCode: string, parentId?: string) => {
     return entities.filter(e =>
-      e.type === typeCode &&
+      (e.type === typeCode || (typeCode === 'direction' && e.type === 'direction_generale')) &&
       e.actif !== false &&
       (parentId ? e.parentId === parentId : true)
     );
@@ -772,9 +772,11 @@ const EnregistrerCourrier: React.FC = () => {
 
   // Retourne l'ID du parent sélectionné au niveau précédent dans la cascade
   const getParentIdForLevel = (levelIndex: number, cascade: Record<string, string>): string | undefined => {
-    if (levelIndex === 0) return undefined;
-    const parentType = filterLevels[levelIndex - 1];
-    return parentType ? cascade[parentType.code] : undefined;
+    for (let index = levelIndex - 1; index >= 0; index--) {
+      const selected = cascade[filterLevels[index].code];
+      if (selected) return selected;
+    }
+    return undefined;
   };
 
   // Nom de l'entité la plus profonde sélectionnée dans une cascade
