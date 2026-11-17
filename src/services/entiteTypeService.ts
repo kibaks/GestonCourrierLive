@@ -7,6 +7,7 @@ import { laravelApiService } from './laravelApiService';
 class EntiteTypeService {
   private storageKey = 'entite_type_definitions';
   private typesCache: EntiteTypeDefinition[] = [];
+  private typesLoadedFromApi = false;
 
   private getDefaults(): EntiteTypeDefinition[] {
     const base: {
@@ -44,6 +45,7 @@ class EntiteTypeService {
     try {
       const list = await laravelApiService.getEntiteTypes();
       this.typesCache = list;
+      this.typesLoadedFromApi = true;
       if (list.length > 0) localStorage.setItem(this.storageKey, JSON.stringify(list));
       return true;
     } catch {
@@ -58,7 +60,7 @@ class EntiteTypeService {
    */
   getAll(): EntiteTypeDefinition[] {
     if (laravelApiService.isConfigured()) {
-      if (this.typesCache.length > 0) {
+      if (this.typesLoadedFromApi) {
         return [...this.typesCache];
       }
       const data = localStorage.getItem(this.storageKey);
@@ -83,6 +85,13 @@ class EntiteTypeService {
     return this.getAll()
       .filter((t) => t.code !== 'direction_generale' && t.actif === true)
       .sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
+  }
+
+  /** Saisie interne : tous les types actifs, selon l’ordre et les libellés publiés. */
+  getActiveTypesForEntry(): EntiteTypeDefinition[] {
+    if (laravelApiService.isConfigured() && !this.typesLoadedFromApi) return [];
+    return this.getAll().filter(type => type.actif === true)
+      .sort((a,b) => (a.ordre ?? 0) - (b.ordre ?? 0));
   }
 
   /** Libellé au singulier pour un code (ex. direction → "Direction" ou valeur paramétrée). */

@@ -197,7 +197,7 @@ const EnregistrerCourrierListe: React.FC = () => {
   const [entities, setEntities] = useState<EntiteOrganisationnelle[]>(() =>
     entiteOrganisationnelleService.getAllEntities().filter(e => e.actif !== false)
   );
-  const filterLevels = entiteTypeService.getActiveTypesForFilters();
+  const filterLevels = entiteTypeService.getActiveTypesForEntry();
 
   // Sens/type actifs (contrôlent les colonnes dynamiques)
   const [activeSens, setActiveSens] = useState<SensCourrier>(initSens);
@@ -259,7 +259,7 @@ const EnregistrerCourrierListe: React.FC = () => {
           : Promise.resolve()).then(() => {
           if (cancelled) return;
           setEntities(entiteOrganisationnelleService.getAllEntities().filter(e => e.actif !== false));
-          const loaded=entiteOrganisationnelleService.getAllEntities().filter(e=>e.actif!==false),levels=entiteTypeService.getActiveTypesForFilters();
+          const loaded=entiteOrganisationnelleService.getAllEntities().filter(e=>e.actif!==false),levels=entiteTypeService.getActiveTypesForEntry();
           setRows(previous=>previous.map(row=>{
             if(row.type!==TypeCourrier.INTERNE)return row;
             const infer=(name:string,existing:Record<string,string>)=>{
@@ -598,7 +598,7 @@ const EnregistrerCourrierListe: React.FC = () => {
 
   // ── Helpers cascade entités organisationnelles ─────────────────────────────
   const getEntitiesForLevel = (typeCode: string, parentId?: string) =>
-    entities.filter(e => (e.type === typeCode || (typeCode === 'direction' && e.type === 'direction_generale')) && e.actif !== false && (parentId ? e.parentId === parentId : true));
+    entities.filter(e => e.type === typeCode && e.actif !== false && (parentId ? e.parentId === parentId : true));
 
   const getParentIdForLevel = (levelIndex: number, cascade: Record<string, string>): string | undefined => {
     for (let index = levelIndex - 1; index >= 0; index--) {

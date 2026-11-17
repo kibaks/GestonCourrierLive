@@ -1,4 +1,4 @@
-import { internalEntityFields } from '../utils/internalEntities';
+import { internalEntityFields, cascadeForEntity } from '../utils/internalEntities';
 import { courrierReferences } from '../utils/courrierReferences';
 import { profileRequest } from '../services/profileService';
 import CourrierNumberingFields from '../components/CourrierNumberingFields';
@@ -224,6 +224,7 @@ const EnregistrerCourrier: React.FC = () => {
   const [entiteEmetteur, setEntiteEmetteur] = useState<Record<string, string>>({});
   const [entiteDestinataire, setEntiteDestinataire] = useState<Record<string, string>>({});
   const [areEntitiesLocked, setAreEntitiesLocked] = useState<boolean>(false);
+  const [organisationState, setOrganisationState] = useState<'loading' | 'ready' | 'error'>('loading');
   
   // Fichiers existants du courrier en mode édition
   const [existingFiles, setExistingFiles] = useState<CategorieFichier[]>([]);
@@ -246,7 +247,7 @@ const EnregistrerCourrier: React.FC = () => {
   });
 
   // Types d'entités actifs pour la cascade Organisation interne
-  const filterLevels = entiteTypeService.getActiveTypesForFilters();
+  const filterLevels = entiteTypeService.getActiveTypesForEntry();
   
   type CourrierFormData = {
     sens: SensCourrier;
@@ -764,7 +765,7 @@ const EnregistrerCourrier: React.FC = () => {
   // --- Helpers cascade entités organisationnelles ---
   const getEntitiesForLevel = (typeCode: string, parentId?: string) => {
     return entities.filter(e =>
-      (e.type === typeCode || (typeCode === 'direction' && e.type === 'direction_generale')) &&
+      e.type === typeCode &&
       e.actif !== false &&
       (parentId ? e.parentId === parentId : true)
     );
@@ -863,7 +864,7 @@ const EnregistrerCourrier: React.FC = () => {
     }
   };
   
-  const canGoToNextStepForConfiguredFields = () => !loadingConfig && !configError && formConfig !== null && getAllFields().every(section => (section.columns || []).every(column => (column.fields || []).every(field => !field.required || (formData[field.name] !== undefined && formData[field.name] !== null && String(formData[field.name]).trim() !== ''))));
+  const canGoToNextStepForConfiguredFields = () => !loadingConfig && !configError && formConfig !== null && (formData.type !== TypeCourrier.INTERNE || organisationState === 'ready') && getAllFields().every(section => (section.columns || []).every(column => (column.fields || []).every(field => !field.required || (formData[field.name] !== undefined && formData[field.name] !== null && String(formData[field.name]).trim() !== ''))));
 
   const canGoToNextStep = () => {
     if (currentStep === 1) {
@@ -1325,14 +1326,17 @@ const EnregistrerCourrier: React.FC = () => {
         if (laravelApiService.isConfigured()) {
           await Promise.all([
             adminService.refreshUsersFromApi().catch(() => {}),
-            entiteOrganisationnelleService.refreshFromApi().catch(() => {}),
-            entiteTypeService.syncFromApi().catch(() => {}),
+            laravelApiService.getEntitesOrganisationnelles().then(list => entiteOrganisationnelleService.syncFromApi(list)),
+            entiteTypeService.syncFromApi().then(ok => { if (!ok) throw new Error('Types d’entités indisponibles'); }),
             formulaireCourrierService.getConfigAsync().catch(() => {}),
           ]);
         } else {
           directionService.initializeDemoData();
           entiteOrganisationnelleService.initializeDemoData();
         }
+        setOrganisationState('ready');
+      } catch {
+        setOrganisationState('error');
       } finally {
         setDirections(directionService.getAllDirections());
         setServices(directionService.getAllServices());
@@ -1358,8 +1362,8 @@ const EnregistrerCourrier: React.FC = () => {
             if (userDirectionEntity && !hasExistingEmetteur && !hasExistingDestinataire) {
               console.log('✅ Entité direction trouvée:', userDirectionEntity.nom);
               // Pour les courriers internes, définir selon le sens
-              setEntiteEmetteur({ direction: userDirectionEntity.id });
-              setEntiteDestinataire({ direction: userDirectionEntity.id });
+              setEntiteEmetteur(cascadeForEntity(userDirectionEntity.id,entiteTypeService.getActiveTypesForEntry(),loadedEntities));
+              setEntiteDestinataire(cascadeForEntity(userDirectionEntity.id,entiteTypeService.getActiveTypesForEntry(),loadedEntities));
               setAreEntitiesLocked(true);
             }
           }
@@ -1910,7 +1914,9 @@ const EnregistrerCourrier: React.FC = () => {
                                   </label>
                                   
                                   {formData.type === TypeCourrier.INTERNE && field.type === 'text' && ['expediteur', 'destinataire'].includes(field.name) && <div className="space-y-3">
-                                    {filterLevels.map((level, idx) => {
+                                    {organisationState !== 'ready' && <p role={organisationState === 'error' ? 'alert' : 'status'} className="text-sm text-slate-700">{organisationState === 'error' ? 'Impossible de charger les types d’entités et l’organigramme.' : 'Chargement des organisations internes…'}{organisationState === 'error' && <button type="button" className="ml-2 underline" onClick={() => window.location.reload()}>Réessayer</button>}</p>}
+                                    {organisationState === 'ready' && filterLevels.length === 0 && <p className="text-sm text-slate-600">Aucun type d’entité actif dans Paramétrages.</p>}
+                                    {organisationState === 'ready' && filterLevels.map((level, idx) => {
                                       const cascade = field.name === 'expediteur' ? entiteEmetteur : entiteDestinataire;
                                       const parentId = getParentIdForLevel(idx, cascade);
                                       if (idx > 0 && (!parentId || getEntitiesForLevel(level.code,parentId).length === 0)) return null;
