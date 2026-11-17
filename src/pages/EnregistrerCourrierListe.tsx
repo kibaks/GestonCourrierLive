@@ -101,6 +101,7 @@ const EnregistrerCourrierListe: React.FC = () => {
       direction: user?.direction ?? '',
       service: user?.service ?? '',
     };
+    if (user?.role === Role.SECRETAIRE && (user.estSecrétaireDG || user.direction === 'Direction Générale')) return defaults;
     if (user?.role === Role.SECRETAIRE) {
       if (initSens === SensCourrier.ENTRANT) {
         defaults.destinataire = 'Direction Générale';

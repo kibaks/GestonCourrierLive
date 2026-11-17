@@ -178,7 +178,7 @@ const EnregistrerCourrier: React.FC = () => {
   const canCreateSortant = user?.role === Role.SECRETAIRE || user?.role === Role.SUPER_ADMIN || user?.role === Role.DIRECTEUR_GENERAL;
   // Secrétaire DG = Secrétaire sans direction assignée OU direction = 'Direction Générale'
   const isSecretaireDG = user?.role === Role.SECRETAIRE &&
-    (!user?.direction || user?.direction === 'Direction Générale');
+    (user.estSecrétaireDG === true || user.direction === 'Direction Générale');
   const canCreateExterne = isSecretaireDG || user?.role === Role.SUPER_ADMIN;
   
   // Mode édition : récupérer l'ID du courrier depuis l'URL
@@ -1337,8 +1337,10 @@ const EnregistrerCourrier: React.FC = () => {
         const loadedEntities = entiteOrganisationnelleService.getAllEntities().filter(e => e.actif !== false);
         setEntities(loadedEntities);
         
-        // Pré-sélectionner les entités de l'utilisateur courant (si aucune entité n'est déjà définie)
-        if (user) {
+        // Le secrétariat DG choisit librement les unités internes, y compris en modification.
+        if (isSecretaireDG) setAreEntitiesLocked(false);
+        // Les autres profils conservent leur périmètre habituel.
+        if (user && !isSecretaireDG) {
           console.log('🔍 Pré-sélection des entités pour l\'utilisateur:', user.nom, { direction: user.direction, service: user.service, entiteId: user.entiteId });
           
           // Vérifier si les entités sont déjà définies (mode édition avec données existantes)
@@ -1910,7 +1912,7 @@ const EnregistrerCourrier: React.FC = () => {
                                       const cascade = field.name === 'expediteur' ? entiteEmetteur : entiteDestinataire;
                                       const parentId = getParentIdForLevel(idx, cascade);
                                       if (idx > 0 && !parentId) return null;
-                                      return <label key={level.code} className="block text-sm font-medium text-slate-700">{level.libelleSingulier}<select value={cascade[level.code] || ''} onChange={event => field.name === 'expediteur' ? handleEntiteEmetteurChange(level.code,event.target.value,idx) : handleEntiteDestinataireChange(level.code,event.target.value,idx)} disabled={areEntitiesLocked} className="mt-1 w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"><option value="">Sélectionner…</option>{getEntitiesForLevel(level.code,parentId).map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
+                                      return <label key={level.code} className="block text-sm font-medium text-slate-700">{level.libelleSingulier}<select value={cascade[level.code] || ''} onChange={event => field.name === 'expediteur' ? handleEntiteEmetteurChange(level.code,event.target.value,idx) : handleEntiteDestinataireChange(level.code,event.target.value,idx)} disabled={areEntitiesLocked && !isSecretaireDG} className="mt-1 w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"><option value="">Sélectionner…</option>{getEntitiesForLevel(level.code,parentId).map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
                                     })}
                                   </div>}
                                   {/* Champ de type DATE ou DATETIME avec Material Design */}
