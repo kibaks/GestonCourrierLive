@@ -1613,7 +1613,7 @@ const EnregistrerCourrierListe: React.FC = () => {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="batch-header-actions flex items-center gap-2 flex-wrap">
             {savedCount > 0 && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-sm font-semibold border border-emerald-200">
                 <FontAwesomeIcon icon={faCheckCircle} />{savedCount} enregistré{savedCount > 1 ? 's' : ''}

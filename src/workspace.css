@@ -237,3 +237,14 @@
  .batch-entry .batch-detail-body{color:#334155;font-size:14px}
  .batch-entry .batch-detail-body h4{font-size:16px;line-height:1.5}
 }
+
+/* Laisser aux actions la hauteur nécessaire, sans superposition. */
+@media(max-width:1023px){
+ .batch-entry .batch-inline-actions{height:auto;min-height:48px;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:12px}
+ .batch-entry .batch-inline-actions button{flex:0 0 44px;margin:0}
+ .batch-entry .batch-header-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:10px}
+ .batch-entry .batch-header-actions button{min-height:44px;justify-content:center;white-space:normal;line-height:1.4}
+ .batch-entry .batch-header-actions button:last-child{grid-column:1 / -1}
+ .batch-entry .batch-save-bar{position:static}
+ .batch-entry .batch-save-bar button{min-height:44px;white-space:normal}
+}
