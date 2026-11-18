@@ -2927,6 +2927,7 @@ const DetailCourrier: React.FC = () => {
               </div>
             ) : (
               <PdfAnnotator
+                key={`${id}:${annotatorFile.id}`}
                 courrierId={id || ''}
                 fichierId={annotatorFile.id}
                 fileUrl={annotatorBlobUrl}
@@ -2951,5 +2952,10 @@ const DetailCourrier: React.FC = () => {
   );
 };
 
-export default DetailCourrier;
+// Route changes must unmount pending loads, document state and annotation drafts.
+const ScopedDetailCourrier: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <DetailCourrier key={id} />;
+};
+export default ScopedDetailCourrier;
 

@@ -1,3 +1,4 @@
+import {annotationsForContext} from '../utils/annotationScope';
 import {apiValidationError} from '../utils/apiValidationError';
 import { createSessionFetch } from './sessionFetch';
 /**
@@ -1318,7 +1319,7 @@ class LaravelApiService {
     if (!res.ok) return [];
     const data = await res.json();
     const list = Array.isArray(data?.data) ? data.data : [];
-    return list.map((item: Record<string, unknown>) => parseAnnotationFromApi(item));
+    return annotationsForContext(list.map((item: Record<string, unknown>) => parseAnnotationFromApi(item)), courrierId);
   }
 
   async createAnnotation(body: {

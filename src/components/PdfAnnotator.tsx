@@ -1,3 +1,4 @@
+import {annotationsForContext} from '../utils/annotationScope';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -230,7 +231,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
 
   // Annotations de CE fichier, ancrées (page + position), triées par création croissante.
   const fileAnnotations = useMemo(() => {
-    const all = [...annotations, ...sessionExtras];
+    const all = annotationsForContext([...annotations, ...sessionExtras], courrierId, fichierId);
     const seen = new Set<string>();
     const uniq = all.filter((a) => {
       if (!a.fichierId || a.fichierId !== fichierId) return false;
@@ -240,7 +241,7 @@ const PdfAnnotator: React.FC<PdfAnnotatorProps> = ({
       return true;
     });
     return uniq.sort((a, b) => new Date(a.dateCreation).getTime() - new Date(b.dateCreation).getTime());
-  }, [annotations, sessionExtras, fichierId]);
+  }, [annotations, sessionExtras, courrierId, fichierId]);
 
   // Numéro d'épingle stable — P7 : seuls les commentaires principaux sont numérotés
   // (l'encre, les tampons, textes et signatures n'entrent pas dans la numérotation,
