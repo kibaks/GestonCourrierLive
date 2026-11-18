@@ -33,3 +33,7 @@ test('a fully successful batch is the only success alert',async()=>{
   assert.equal(orientationResultMessage(result,id=>id).type,'success');assert.equal(result.doneIds.length,2);
   assert.equal(orientationResultMessage({doneIds:[],errors:[]},id=>id).type,'error');
 });
+
+test('empty targets show the actual workflow reason',()=>{
+  assert.throws(()=>resolveOrientationSubmission({...options,targets:[],blockedReason:'Ce courrier est déjà traité.'}),/déjà traité/);
+});

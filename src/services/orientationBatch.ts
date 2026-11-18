@@ -1,4 +1,5 @@
 export type OrientationOptions = {
+  blockedReason?: string | null;
   requiresDgAnnotation: boolean;
   targets: Array<{ id: string; nom: string; role: string }>;
   instructions: Array<{ id: string; contenu: string; fichierId?: string; page?: number }>;
@@ -7,7 +8,7 @@ export type OrientationResult = { doneIds: string[]; errors: Array<{ id: string;
 
 export function resolveOrientationSubmission(options: OrientationOptions, targetId?: string, annotationId?: string) {
   const chosenId = targetId || (options.targets.length === 1 ? options.targets[0].id : '');
-  if (!options.targets.length) throw new Error('Aucune orientation disponible à cette étape. Consultez le circuit du courrier.');
+  if (!options.targets.length) throw new Error(options.blockedReason || 'Le circuit ne prévoit pas de transmission par votre compte à cette étape. Consultez le circuit du courrier.');
   if (!chosenId) throw new Error('Choisissez le prochain responsable du circuit.');
   if (!options.targets.some(target => target.id === chosenId)) throw new Error('La cible choisie ne correspond plus à l’étape autorisée du circuit. Rechargez les cibles.');
   if (options.requiresDgAnnotation && !options.instructions.some(instruction => instruction.id === annotationId)) {

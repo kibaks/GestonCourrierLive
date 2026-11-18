@@ -11428,7 +11428,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           <p className="text-xs text-surface-500 break-words">Destinataire du courrier : {courrier.destinataire || 'non renseigné'}</p>
                           {orientationOptionsLoading ? <p role="status" className="text-xs">Chargement des étapes autorisées…</p>
                             : entry?.error ? <p role="alert" className="text-xs text-red-700">{entry.error}</p>
-                            : !options?.targets.length ? <p className="text-xs text-amber-800">Aucune orientation disponible à cette étape. Consultez le circuit du courrier.</p>
+                            : !options?.targets.length ? <p className="text-xs text-amber-800">{options?.blockedReason || 'Le circuit ne prévoit pas de transmission par votre compte à cette étape. Consultez le circuit du courrier.'}</p>
                             : <>
                               <label className="block text-xs font-medium" htmlFor={`orientation-target-${courrier.id}`}>Prochain responsable du circuit</label>
                               <select id={`orientation-target-${courrier.id}`} value={orientManualByCourrier[courrier.id] || (options.targets.length===1?options.targets[0].id:'')}
