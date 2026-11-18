@@ -1,3 +1,4 @@
+import {registrationSender, registrationSections} from '../utils/registrationParties';
 import { internalEntityFields,cascadeForEntity } from '../utils/internalEntities';
 import {batchRequestId,batchSourceRow} from '../utils/batchRegistration';
 import {courrierReferences} from '../utils/courrierReferences';
@@ -101,24 +102,7 @@ const EnregistrerCourrierListe: React.FC = () => {
       direction: user?.direction ?? '',
       service: user?.service ?? '',
     };
-    if (user?.role === Role.SECRETAIRE && (user.estSecrétaireDG || user.direction === 'Direction Générale')) return defaults;
-    if (user?.role === Role.SECRETAIRE) {
-      if (initSens === SensCourrier.ENTRANT) {
-        defaults.destinataire = 'Direction Générale';
-      } else {
-        defaults.expediteur = user.direction ?? '';
-      }
-    } else if (user?.role === Role.DIRECTEUR_GENERAL) {
-      if (initSens === SensCourrier.ENTRANT) {
-        defaults.destinataire = user.direction || 'Direction Générale';
-      }
-    } else if (user?.direction) {
-      if (initSens === SensCourrier.ENTRANT) {
-        defaults.destinataire = user.direction;
-      } else {
-        defaults.expediteur = user.direction;
-      }
-    }
+    defaults.expediteur = user?.nom || '';
     return defaults;
   };
 
@@ -199,6 +183,11 @@ const EnregistrerCourrierListe: React.FC = () => {
   );
   const filterLevels = entiteTypeService.getActiveTypesForEntry();
 
+  useEffect(() => {
+    const sender=registrationSender(user,entities,entiteTypeService.getActiveTypesForEntry());
+    setRows(previous=>previous.map(row=>status[row.id]==='saved'?row:{...row,expediteur:sender.name,entiteEmetteur:row.type===TypeCourrier.INTERNE?sender.cascade:{}}));
+  }, [user?.id,user?.nom,user?.entiteId,user?.direction,entities,rows.map(row=>row.type).join('|')]);
+
   // Sens/type actifs (contrôlent les colonnes dynamiques)
   const [activeSens, setActiveSens] = useState<SensCourrier>(initSens);
   const [activeType, setActiveType] = useState<TypeCourrier>(initType);
@@ -232,6 +221,8 @@ const EnregistrerCourrierListe: React.FC = () => {
   // Config formulaire + colonnes dynamiques extraites
   const [formConfig, setFormConfig] = useState<ExtraFieldsBySensAndType | null>(null);
   const [extraColumns, setExtraColumns] = useState<ExtraFieldConfig[]>([]);
+
+  const canCreateExterne = user?.role === Role.SUPER_ADMIN || (user?.role === Role.SECRETAIRE && (user.estSecrétaireDG === true || user.direction === 'Direction Générale'));
 
   const allowed = user && [Role.SECRETAIRE, Role.SUPER_ADMIN, Role.DIRECTEUR_GENERAL].includes(user.role);
 
@@ -306,7 +297,7 @@ const EnregistrerCourrierListe: React.FC = () => {
   // Extraire les champs dynamiques sauf priorité
   useEffect(() => {
     if (!formConfig) return;
-    const sections = formConfig[activeSens]?.[activeType] ?? [];
+    const sections = registrationSections(formConfig[activeSens]?.[activeType] ?? []);
     const seen = new Set<string>();
     const cols: ExtraFieldConfig[] = [];
     sections.forEach(section => {
@@ -330,6 +321,11 @@ const EnregistrerCourrierListe: React.FC = () => {
     setExtraColumns(cols);
   }, [formConfig, activeSens, activeType]);
 
+  useEffect(() => {
+    const urgency=extraColumns.find(field=>field.name.toLowerCase().includes('urgenc') || field.label?.toLowerCase().includes('urgenc'));
+    if(urgency)setRows(previous=>previous.map(row=>status[row.id]==='saved'||row.extraFields[urgency.name]!==undefined?row:{...row,extraFields:{...row.extraFields,[urgency.name]:'3'}}));
+  }, [extraColumns]);
+
   // Synchroniser les lignes non sauvegardées avec les options globales Sens/Type
   useEffect(() => {
     setRows(prev => prev.map(r => {
@@ -337,9 +333,11 @@ const EnregistrerCourrierListe: React.FC = () => {
       if (status[r.id]==='saved')return r;
       if (r.sens === activeSens && r.type === activeType) return r;
       // Mettre à jour le sens et type pour correspondre aux options globales
-      return { ...r, sens: activeSens, type: activeType };
+      return { ...r, sens: activeSens, type: activeType, expediteur:user?.nom || '',destinataire:'',entiteEmetteur:{},entiteDestinataire:{},extraFields:{} };
     }));
   }, [activeSens, activeType]);
+
+  useEffect(() => { if (user && !canCreateExterne && activeType === TypeCourrier.EXTERNE) setActiveType(TypeCourrier.INTERNE); }, [user?.id,canCreateExterne,activeType]);
 
   const upd = useCallback((id: string, f: keyof RowData, v: string) => {
     if(savingLock.current)return;
@@ -1333,8 +1331,9 @@ const EnregistrerCourrierListe: React.FC = () => {
           </td>
           {/* Colonne 2: Expediteur/Destinataire */}
           <td className="px-2 py-1.5">
-            <div className="batch-letter-reference"><span>N° de lettre</span><strong>{letterNumberLoading ? 'Chargement…' : letterNumber || 'À définir dans le registre'}</strong></div>
-            {extraColumns.filter(field => field.name === 'destinataire' || field.name === 'expediteur').map(participant => {
+            <div className="mb-2 rounded-lg bg-surface-50 p-2"><span className="block text-xs text-slate-500">Expéditeur automatique</span><strong className="block break-words text-sm">{row.expediteur || user?.nom}</strong><span className="text-xs text-slate-500">Non modifiable</span></div><div className="batch-letter-reference"><span>N° de lettre</span><strong>{letterNumberLoading ? 'Chargement…' : letterNumber || 'À définir dans le registre'}</strong></div>
+            {row.type === TypeCourrier.INTERNE && <div className="mt-2 text-sm"><span className="block text-xs text-slate-500">Destinataire</span><span className="block break-words">{row.destinataire || 'À compléter dans les détails'}</span>{!row.destinataire&&<button type="button" disabled={saving||st==='saved'} className="mt-1 text-blue-700 underline" onClick={()=>setExpanded(previous=>({...previous,[row.id]:true}))}>Renseigner dans les détails</button>}</div>}
+            {extraColumns.filter(field => (field.name === 'destinataire' || field.name === 'expediteur') && row.type !== TypeCourrier.INTERNE).map(participant => {
               const name = participant.name as 'expediteur' | 'destinataire';
               const field = configuredField(name);
               if (!field) return null;
@@ -1343,7 +1342,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                 <span className="batch-entity-caption">{field.label}{field.required ? ' *' : ''}</span>
                 {referenceLoading ? <span role="status">Chargement de la structure…</span> : filterLevels.map((entityLevel,levelIndex) => {
                   const parent = getParentIdForLevel(levelIndex,cascade);
-                  if(levelIndex && !parent) return null;
+                  if(levelIndex && (!parent || !getEntitiesForLevel(entityLevel.code,parent).length)) return null;
                   return <label key={entityLevel.code} htmlFor={`batch-${name}-${row.id}-${entityLevel.code}`}><span>{entityLevel.libelleSingulier}</span><select id={`batch-${name}-${row.id}-${entityLevel.code}`} value={cascade[entityLevel.code] || ''} onChange={event => name === 'expediteur' ? updEntiteEmetteur(row.id,entityLevel.code,event.target.value,levelIndex) : updEntiteDestinataire(row.id,entityLevel.code,event.target.value,levelIndex)} disabled={saving || st === 'saved' || referenceLoading}><option value="">Choisir…</option>{getEntitiesForLevel(entityLevel.code,parent).map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
                 })}
                 {err[name] && <span role="alert" className="text-xs text-red-600">{err[name]}</span>}
@@ -1421,7 +1420,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                 </div>
                 <div className="batch-detail-body">
                   <div className="batch-detail-reference"><label>N° de lettre administratif<input readOnly aria-label={`Numéro de lettre de la ligne ${rows.findIndex(item=>item.id===row.id)+1}`} value={letterNumber} placeholder={letterNumberLoading ? 'Chargement du numéro…' : 'Sélectionner le registre du lot'} /></label><span>Prérempli selon les paramètres · confirmé à l’enregistrement</span></div>
-                  {(formConfig?.[activeSens]?.[activeType] || []).map(section => <section key={section.id} className="border-t border-surface-200 pt-4 mt-4" style={section.style}>
+                  {(registrationSections(formConfig?.[activeSens]?.[activeType] || [])).map(section => <section key={section.id} className="border-t border-surface-200 pt-4 mt-4" style={section.style}>
                     {section.label && <h4 className="text-sm font-bold text-slate-800 mb-3">{section.label}</h4>}
                     {section.placeholder && <p className="text-sm text-slate-500 mb-3">{section.placeholder}</p>}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -1441,7 +1440,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                                   {filterLevels.map((entityLevel,levelIndex) => {
                                     const cascade = col.name === 'expediteur' ? row.entiteEmetteur : row.entiteDestinataire;
                                     const parent = getParentIdForLevel(levelIndex,cascade);
-                                    if(levelIndex && !parent) return null;
+                                    if(levelIndex && (!parent || !getEntitiesForLevel(entityLevel.code,parent).length)) return null;
                                     const options = getEntitiesForLevel(entityLevel.code,parent);
                                     if(levelIndex && options.length === 0) return null;
                                     return <label key={entityLevel.code} htmlFor={`batch-detail-${col.name}-${row.id}-${entityLevel.code}`}><span>{entityLevel.libelleSingulier}</span><select id={`batch-detail-${col.name}-${row.id}-${entityLevel.code}`} value={cascade[entityLevel.code] || ''} onChange={event => col.name === 'expediteur' ? updEntiteEmetteur(row.id,entityLevel.code,event.target.value,levelIndex) : updEntiteDestinataire(row.id,entityLevel.code,event.target.value,levelIndex)} disabled={dis}><option value="">Choisir…</option>{options.map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
@@ -1457,7 +1456,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                                 <MaterialDateTimeField value={val} onChange={(v) => chg(v || '')} label={col.label} disabled={dis} />
                               ) : col.type === 'textarea' ? (
                                 <MaterialInput label={col.label} value={val} onChange={e => chg(e.target.value)} disabled={dis} error={errMsg} required={col.required} multiline rows={3} placeholder={col.placeholder} />
-                              ) : col.type === 'slider' ? (
+                              ) : (col.type === 'slider' || col.name.toLowerCase().includes('urgenc') || col.label?.toLowerCase().includes('urgenc')) ? (
                                 <label className="block text-sm text-slate-700">{col.label} : {val || col.min || (col.name.toLowerCase().includes('urgenc') ? 3 : 0)}<input type="range" className="mt-2 w-full accent-blue-600" min={col.min ?? (col.name.toLowerCase().includes('urgenc') ? 1 : 0)} max={col.max ?? (col.name.toLowerCase().includes('urgenc') ? 5 : 100)} step={col.step ?? 1} value={val || col.min || (col.name.toLowerCase().includes('urgenc') ? 3 : 0)} onChange={e => chg(e.target.value)} disabled={dis} /></label>
                               ) : col.type === 'radio' && col.options?.length && col.options.length === 2 ? (
                                 <label className={`relative inline-flex items-center cursor-pointer ${dis ? 'cursor-not-allowed opacity-60' : ''}`}>
@@ -1663,7 +1662,7 @@ const EnregistrerCourrierListe: React.FC = () => {
           </div>
           <div className="flex items-center bg-surface-100 rounded-xl p-0.5">
             {Object.values(TypeCourrier).map(t => (
-              <button disabled={saving} key={t} onClick={() => setActiveType(t)}
+              <button title={t === TypeCourrier.EXTERNE && !canCreateExterne ? 'Réservé au secrétariat DG et à l’administrateur' : undefined} disabled={saving || (t === TypeCourrier.EXTERNE && !canCreateExterne)} key={t} onClick={() => setActiveType(t)}
                 className={`px-3 py-1.5 rounded-[10px] text-xs font-bold transition-all ${
                   activeType === t
                     ? 'bg-white shadow text-indigo-600 border border-surface-200'

@@ -1,3 +1,4 @@
+import {registrationSender, registrationSections} from '../utils/registrationParties';
 import { internalEntityFields, cascadeForEntity } from '../utils/internalEntities';
 import { courrierReferences } from '../utils/courrierReferences';
 import { profileRequest } from '../services/profileService';
@@ -651,7 +652,7 @@ const EnregistrerCourrier: React.FC = () => {
   };
 
   // Obtenir tous les champs à afficher — uniquement les champs dynamiques configurés
-  const getAllFields = () => formConfig?.[formData.sens]?.[formData.type] || [];
+  const getAllFields = () => registrationSections(formConfig?.[formData.sens]?.[formData.type] || []);
   const participantConfigured = (name: string) => getAllFields().some(section => section.columns?.some(column => column.fields?.some(field => field.name === name)));
 
   // S'assurer que la date de réception est toujours initialisée
@@ -1343,96 +1344,20 @@ const EnregistrerCourrier: React.FC = () => {
         const loadedEntities = entiteOrganisationnelleService.getAllEntities().filter(e => e.actif !== false);
         setEntities(loadedEntities);
         
-        // Le secrétariat DG choisit librement les unités internes, y compris en modification.
-        if (isSecretaireDG) setAreEntitiesLocked(false);
-        // Les autres profils conservent leur périmètre habituel.
-        if (user && !isSecretaireDG) {
-          console.log('🔍 Pré-sélection des entités pour l\'utilisateur:', user.nom, { direction: user.direction, service: user.service, entiteId: user.entiteId });
-          
-          // Vérifier si les entités sont déjà définies (mode édition avec données existantes)
-          const hasExistingEmetteur = Object.keys(entiteEmetteur).length > 0;
-          const hasExistingDestinataire = Object.keys(entiteDestinataire).length > 0;
-          
-          // Chercher l'entité correspondant à la direction de l'utilisateur
-          if (user.direction) {
-            const userDirectionEntity = loadedEntities.find(e => 
-              e.type === 'direction' && 
-              (e.nom === user.direction || e.id === user.direction)
-            );
-            if (userDirectionEntity && !hasExistingEmetteur && !hasExistingDestinataire) {
-              console.log('✅ Entité direction trouvée:', userDirectionEntity.nom);
-              // Pour les courriers internes, définir selon le sens
-              setEntiteEmetteur(cascadeForEntity(userDirectionEntity.id,entiteTypeService.getActiveTypesForEntry(),loadedEntities));
-              setEntiteDestinataire(cascadeForEntity(userDirectionEntity.id,entiteTypeService.getActiveTypesForEntry(),loadedEntities));
-              setAreEntitiesLocked(true);
-            }
-          }
-          
-          // Chercher l'entité correspondant au service de l'utilisateur
-          if (user.service) {
-            const userServiceEntity = loadedEntities.find(e => 
-              e.type === 'service' && 
-              (e.nom === user.service || e.id === user.service)
-            );
-            if (userServiceEntity && !hasExistingEmetteur && !hasExistingDestinataire) {
-              console.log('✅ Entité service trouvée:', userServiceEntity.nom);
-              // Trouver la division parente (si existe)
-              const parentDivision = loadedEntities.find(e => 
-                e.id === userServiceEntity.parentId && e.type === 'division'
-              );
-              // Trouver la direction parente
-              let parentDirection = null;
-              if (parentDivision) {
-                parentDirection = loadedEntities.find(e => 
-                  e.id === parentDivision.parentId && e.type === 'direction'
-                );
-              } else {
-                // Service directement sous une direction
-                parentDirection = loadedEntities.find(e => 
-                  e.id === userServiceEntity.parentId && e.type === 'direction'
-                );
-              }
-              const cascade: Record<string, string> = { service: userServiceEntity.id };
-              if (parentDivision) {
-                cascade.division = parentDivision.id;
-              }
-              if (parentDirection) {
-                cascade.direction = parentDirection.id;
-              }
-              setEntiteEmetteur(cascade);
-              setEntiteDestinataire(cascade);
-              setAreEntitiesLocked(true);
-            }
-          }
-          
-          // Si l'utilisateur a un entiteId direct (prioritaire si aucune entité existante)
-          if (user.entiteId && !hasExistingEmetteur && !hasExistingDestinataire) {
-            const userEntity = loadedEntities.find(e => e.id === user.entiteId);
-            if (userEntity) {
-              console.log('✅ Entité utilisateur trouvée:', userEntity.nom, 'Type:', userEntity.type);
-              const cascade: Record<string, string> = { [userEntity.type]: userEntity.id };
-              // Chercher les parents pour compléter la cascade
-              let currentParentId = userEntity.parentId;
-              while (currentParentId) {
-                const parent = loadedEntities.find(e => e.id === currentParentId);
-                if (parent) {
-                  cascade[parent.type] = parent.id;
-                  currentParentId = parent.parentId;
-                } else {
-                  break;
-                }
-              }
-              setEntiteEmetteur(cascade);
-              setEntiteDestinataire(cascade);
-              setAreEntitiesLocked(true);
-            }
-          }
-        }
+
       }
     };
     void loadEntities();
   }, []);
   
+  useEffect(() => {
+    if (!user || isEditMode) return;
+    const sender = registrationSender(user, entities, entiteTypeService.getActiveTypesForEntry());
+    setFormData(previous=>previous.expediteur===sender.name?previous:{...previous,expediteur:sender.name});
+    setEntiteEmetteur(formData.type === TypeCourrier.INTERNE ? sender.cascade : {});
+    setAreEntitiesLocked(false);
+  }, [user?.id, user?.nom, user?.entiteId, user?.direction, entities, formData.type, formData.expediteur, isEditMode]);
+
   useEffect(() => {
     formulaireCourrierService.getConfigAsync().then((config) => {
       setExtraFieldsConfig(config);
@@ -1890,6 +1815,7 @@ const EnregistrerCourrier: React.FC = () => {
                 </div>
                 
                 <div className="courrier-configured-form space-y-6">
+                    <div className="rounded-xl border border-surface-200 bg-surface-50 p-4"><label className="block text-sm font-semibold" htmlFor="registration-sender">Expéditeur · compte connecté</label><input id="registration-sender" value={formData.expediteur} readOnly className="mt-2 w-full rounded-lg border bg-surface-100 px-3 py-2"/><p className="mt-2 text-xs text-slate-600">Renseigné automatiquement, non modifiable.{!isEditMode && registrationSender(user,entities,filterLevels).entity?.nom ? ` Entité : ${registrationSender(user,entities,filterLevels).entity!.nom}.` : ''}</p></div>
                     {getAllFields().map((section: any) => (
                       <div key={section.id} className="space-y-4" style={section.style}>
                         {/* Afficher le titre de section si existant et différent de 'Infos' */}
