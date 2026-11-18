@@ -1,3 +1,4 @@
+import {courrierStatusLabel, courrierCycleStatuses} from '../utils/courrierStatus';
 import {internalEntityPath,matchesInternalEntity} from '../utils/internalEntities';
 import {entiteTypeService} from '../services/entiteTypeService';
 import {buildCahierRegisterPdf} from '../utils/cahierRegisterPdf';
@@ -206,7 +207,7 @@ const CahierRegistre: React.FC<{adminMode?: boolean}> = ({adminMode=false}) => {
     if(internalPath)return internalPath;
     if (key === 'numero') return courrierReferences(c) || '-';
     if (key === 'dateReception') return exportSettingsService.formatDate(c.dateReception);
-    if (key === 'statut') return c.statut || '-';
+    if (key === 'statut') return courrierStatusLabel(c.statut) || '-';
     if (key === 'priorite') return c.priorite || '-';
     if (key === 'annotationDG') {
       const v = dgAnnotationMap.get(c.id);
@@ -451,7 +452,7 @@ const CahierRegistre: React.FC<{adminMode?: boolean}> = ({adminMode=false}) => {
                 }}><option value="">Toutes les entités de ce niveau</option>{options.map(entity=><option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
               })}
 
-              <label>Statut<select value={registreConfig.filterStatut} onChange={e=>handleFilterStatut(e.target.value)}><option value="ALL">Tous</option>{[['ENREGISTRE','Enregistré'],['EN_ATTENTE_DG','En attente DG'],['ORIENTE_DG','Orienté DG'],['ORIENTE_DIRECTEUR','Orienté direction'],['EN_TRAITEMENT','En traitement'],['ASSIGNE','Assigné'],['TRAITE','Traité'],['ARCHIVE','Archivé']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+              <label>Statut<select value={registreConfig.filterStatut} onChange={e=>handleFilterStatut(e.target.value)}><option value="ALL">Tous</option>{courrierCycleStatuses.map(value=><option key={value} value={value}>{courrierStatusLabel(value)}</option>)}</select></label>
               <label>Réception du<input type="date" value={registreConfig.filterDateDebut} onChange={handleFilterDateDebutChange}/></label>
               <label>Au<input type="date" value={registreConfig.filterDateFin} onChange={handleFilterDateFinChange}/></label>
               <label>Priorité<select value={registreConfig.filterPriorite} onChange={e=>handleFilterPriorite(e.target.value)}><option value="ALL">Toutes</option>{Array.from(new Set(courriers.map(c=>c.priorite))).sort().map(priority=><option key={priority} value={priority}>{priority}</option>)}</select></label>

@@ -1,3 +1,4 @@
+import {apiValidationError} from '../utils/apiValidationError';
 import { createSessionFetch } from './sessionFetch';
 /**
  * Client API Laravel (MySQL) - Niveau 2 du stockage à trois niveaux.
@@ -164,14 +165,7 @@ function parseApiErrorMessage(status: number, bodyText: string): string {
   if (status === 422) {
     try {
       const data = JSON.parse(bodyText) as { message?: string; errors?: Record<string, string[]> };
-      const parts: string[] = [data?.message || 'Données invalides (422).'];
-      if (data?.errors && typeof data.errors === 'object') {
-        const details = Object.entries(data.errors)
-          .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`)
-          .join(' ; ');
-        if (details) parts.push(details);
-      }
-      return parts.join(' ');
+      return apiValidationError(data,'Données invalides (422).');
     } catch {
       return `Données invalides (422). ${bodyText.slice(0, 200)}`;
     }
@@ -729,11 +723,7 @@ class LaravelApiService {
       let msg: string;
       try {
         const json = JSON.parse(text) as { message?: string; errors?: Record<string, string[]> };
-        msg = json?.message || text.slice(0, 200);
-        if (json?.errors && typeof json.errors === 'object') {
-          const details = Object.entries(json.errors).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' ; ');
-          if (details) msg += ' ' + details;
-        }
+        msg = apiValidationError(json,text.slice(0,200));
       } catch {
         msg = text.slice(0, 200) || `${res.status} ${res.statusText}`;
       }

@@ -1,3 +1,4 @@
+import {courrierStatusLabel, courrierCycleStatuses, matchesCourrierStatus} from '../utils/courrierStatus';
 import { courrierReferences, courrierSearchReferences } from '../utils/courrierReferences';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -198,7 +199,7 @@ const CahierRegistre: React.FC = () => {
   const getCellValue = (c: Courrier, key: string, dgAnnotationMap: Map<string, string>): string => {
     if (key === 'numero') return courrierReferences(c) || '-';
     if (key === 'dateReception') return exportSettingsService.formatDate(c.dateReception);
-    if (key === 'statut') return c.statut || '-';
+    if (key === 'statut') return courrierStatusLabel(c.statut) || '-';
     if (key === 'priorite') return c.priorite || '-';
     if (key === 'annotationDG') {
       const v = dgAnnotationMap.get(c.id);
@@ -215,7 +216,7 @@ const CahierRegistre: React.FC = () => {
       let filteredCourriers = courriers;
       if (registreConfig.filterSens !== 'ALL') filteredCourriers = filteredCourriers.filter(c => c.sens === registreConfig.filterSens);
       if (registreConfig.filterType !== 'ALL') filteredCourriers = filteredCourriers.filter(c => c.type === registreConfig.filterType);
-      if (registreConfig.filterStatut !== 'ALL') filteredCourriers = filteredCourriers.filter(c => c.statut === registreConfig.filterStatut);
+      if (registreConfig.filterStatut !== 'ALL') filteredCourriers = filteredCourriers.filter(c => matchesCourrierStatus(c.statut, registreConfig.filterStatut));
       if (registreConfig.filterPriorite !== 'ALL') filteredCourriers = filteredCourriers.filter(c => c.priorite === registreConfig.filterPriorite);
       if (registreConfig.filterDateDebut) filteredCourriers = filteredCourriers.filter(c => new Date(c.dateReception) >= new Date(registreConfig.filterDateDebut));
       if (registreConfig.filterDateFin) filteredCourriers = filteredCourriers.filter(c => new Date(c.dateReception) <= new Date(registreConfig.filterDateFin));
@@ -523,7 +524,7 @@ const CahierRegistre: React.FC = () => {
   const previewCount = courriers.filter(c =>
     (registreConfig.filterSens === 'ALL' || c.sens === registreConfig.filterSens) &&
     (registreConfig.filterType === 'ALL' || c.type === registreConfig.filterType) &&
-    (registreConfig.filterStatut === 'ALL' || c.statut === registreConfig.filterStatut)
+    (registreConfig.filterStatut === 'ALL' || matchesCourrierStatus(c.statut, registreConfig.filterStatut))
   ).length;
 
   if (loading) {
@@ -855,12 +856,7 @@ const CahierRegistre: React.FC = () => {
                   <SectionLabel>Statut</SectionLabel>
                   <div className="flex flex-wrap gap-1.5">
                     <Chip active={registreConfig.filterStatut === 'ALL'} onClick={() => handleFilterStatut('ALL')}>Tous</Chip>
-                    <Chip active={registreConfig.filterStatut === 'EN_ATTENTE_DG'} onClick={() => handleFilterStatut('EN_ATTENTE_DG')}>En attente</Chip>
-                    <Chip active={registreConfig.filterStatut === 'ORIENTE_DG'} onClick={() => handleFilterStatut('ORIENTE_DG')}>Orienté DG</Chip>
-                    <Chip active={registreConfig.filterStatut === 'EN_TRAITEMENT'} onClick={() => handleFilterStatut('EN_TRAITEMENT')}>En cours</Chip>
-                    <Chip active={registreConfig.filterStatut === 'ASSIGNE'} onClick={() => handleFilterStatut('ASSIGNE')}>Assigné</Chip>
-                    <Chip active={registreConfig.filterStatut === 'TRAITE'} onClick={() => handleFilterStatut('TRAITE')}>Traité</Chip>
-                    <Chip active={registreConfig.filterStatut === 'ARCHIVE'} onClick={() => handleFilterStatut('ARCHIVE')}>Archivé</Chip>
+                    {courrierCycleStatuses.map(status=><Chip key={status} active={registreConfig.filterStatut===status} onClick={()=>handleFilterStatut(status)}>{courrierStatusLabel(status)}</Chip>)}
                   </div>
                 </div>
 

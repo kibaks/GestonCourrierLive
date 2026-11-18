@@ -1,3 +1,4 @@
+import {courrierStatusLabel, courrierCycleStatuses, matchesCourrierStatus} from '../utils/courrierStatus';
 import CourrierDrawer from '../components/courriers/CourrierDrawer';
 import { markCourrierRead, COURRIER_READ_EVENT } from '../services/courrierReadService';
 import CourrierSummary, { CourrierCorrespondents } from '../components/courriers/CourrierSummary';
@@ -5953,7 +5954,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
 
     // Filtrage simple par statut, type, etc.
     if (filters.statut) {
-      filtered = filtered.filter(c => c.statut === filters.statut);
+      filtered = filtered.filter(c => matchesCourrierStatus(c.statut, filters.statut));
     }
     if (filters.sens) {
       filtered = filtered.filter(c => getCourrierSens(c) === filters.sens);
@@ -6167,19 +6168,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
     }
   };
 
-  const getStatutLabel = (statut: string): string => {
-    switch (statut) {
-      case 'ENREGISTRE': return 'Enregistré';
-      case 'EN_ATTENTE_DG': return 'En attente DG';
-      case 'ORIENTE_DG': return 'Orienté DG';
-      case 'ORIENTE_DIRECTEUR': return 'Orienté Directeur';
-      case 'EN_TRAITEMENT': return 'En traitement';
-      case 'ASSIGNE': return 'Assigné';
-      case 'TRAITE': return 'Traité';
-      case 'ARCHIVE': return 'Archivé';
-      default: return statut;
-    }
-  };
+  const getStatutLabel = courrierStatusLabel;
 
   const getPrioriteColor = (priorite: Priorite) => {
     switch (priorite) {
@@ -7216,7 +7205,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
       filteredCourriers = filteredCourriers.filter(c => c.type === registreConfig.filterType);
     }
     if (registreConfig.filterStatut !== 'ALL') {
-      filteredCourriers = filteredCourriers.filter(c => c.statut === registreConfig.filterStatut);
+      filteredCourriers = filteredCourriers.filter(c => matchesCourrierStatus(c.statut, registreConfig.filterStatut));
     }
     if (registreConfig.filterPriorite !== 'ALL') {
       filteredCourriers = filteredCourriers.filter(c => c.priorite === registreConfig.filterPriorite);
@@ -9298,16 +9287,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Statut</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {Object.values(StatutCourrier).map(statut => (
+                  {courrierCycleStatuses.map(statut => (
                     <button key={statut} onClick={() => setFilters({ ...filters, statut: filters.statut === statut ? '' : statut })} className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${filters.statut === statut ? 'bg-blue-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
-                      {statut === 'ENREGISTRE' ? 'Enregistré' :
-                       statut === 'EN_ATTENTE_DG' ? 'En attente DG' :
-                       statut === 'ORIENTE_DG' ? 'Orienté DG' :
-                       statut === 'ORIENTE_DIRECTEUR' ? 'Orienté Directeur' :
-                       statut === 'EN_TRAITEMENT' ? 'En traitement' :
-                       statut === 'ASSIGNE' ? 'Assigné' :
-                       statut === 'TRAITE' ? 'Traité' :
-                       statut === 'ARCHIVE' ? 'Archivé' : statut}
+                      {getStatutLabel(statut)}
                     </button>
                   ))}
                 </div>
@@ -11359,16 +11341,9 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     className="w-full px-4 py-3 border-2 border-surface-200 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 bg-white text-surface-700 font-medium transition-all duration-200 hover:border-surface-300 cursor-pointer shadow-sm"
                   >
                     <option value="">Sélectionner un statut</option>
-                    {Object.values(StatutCourrier).map(statut => (
+                    {courrierCycleStatuses.map(statut => (
                       <option key={statut} value={statut}>
-                        {statut === 'ENREGISTRE' ? 'Enregistré' :
-                         statut === 'EN_ATTENTE_DG' ? 'En attente DG' :
-                         statut === 'ORIENTE_DG' ? 'Orienté vers le DG' :
-                         statut === 'ORIENTE_DIRECTEUR' ? 'Orienté vers le Directeur' :
-                         statut === 'EN_TRAITEMENT' ? 'En traitement' :
-                         statut === 'ASSIGNE' ? 'Assigné' :
-                         statut === 'TRAITE' ? 'Traité' :
-                         statut === 'ARCHIVE' ? 'Archivé' : statut}
+                        {getStatutLabel(statut)}
                       </option>
                     ))}
                   </select>
@@ -12434,11 +12409,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                       <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-2">Statut</label>
                         <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => handleFilterStatut(registreConfig.filterStatut === 'EN_ATTENTE_DG' ? 'ALL' : 'EN_ATTENTE_DG')} className={`px-3 py-2 rounded-lg text-sm font-medium ${registreConfig.filterStatut === 'EN_ATTENTE_DG' ? 'bg-blue-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>En attente</button>
-                          <button onClick={() => handleFilterStatut(registreConfig.filterStatut === 'EN_TRAITEMENT' ? 'ALL' : 'EN_TRAITEMENT')} className={`px-3 py-2 rounded-lg text-sm font-medium ${registreConfig.filterStatut === 'EN_TRAITEMENT' ? 'bg-blue-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>En cours</button>
-                          <button onClick={() => handleFilterStatut(registreConfig.filterStatut === 'TRAITE' ? 'ALL' : 'TRAITE')} className={`px-3 py-2 rounded-lg text-sm font-medium ${registreConfig.filterStatut === 'TRAITE' ? 'bg-blue-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Terminé</button>
-                          <button onClick={() => handleFilterStatut(registreConfig.filterStatut === 'ARCHIVE' ? 'ALL' : 'ARCHIVE')} className={`px-3 py-2 rounded-lg text-sm font-medium ${registreConfig.filterStatut === 'ARCHIVE' ? 'bg-blue-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Annulé</button>
-                          <button onClick={() => handleFilterStatut(registreConfig.filterStatut === 'ENREGISTRE' ? 'ALL' : 'ENREGISTRE')} className={`px-3 py-2 rounded-lg text-sm font-medium col-span-2 ${registreConfig.filterStatut === 'ENREGISTRE' ? 'bg-blue-500 text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Enregistre</button>
+                          {courrierCycleStatuses.map(status=><button key={status} onClick={()=>handleFilterStatut(registreConfig.filterStatut===status?'ALL':status)} className={`px-3 py-2 rounded-lg text-sm font-medium ${registreConfig.filterStatut===status?'bg-blue-500 text-white shadow-md':'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>{getStatutLabel(status)}</button>)}
                         </div>
                       </div>
                       <div>

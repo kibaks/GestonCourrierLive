@@ -1,6 +1,6 @@
 import {registrationSender, registrationSections} from '../utils/registrationParties';
 import { internalEntityFields,cascadeForEntity } from '../utils/internalEntities';
-import {batchRequestId,batchSourceRow} from '../utils/batchRegistration';
+import {batchRequestId,batchSourceRow,batchContextRow} from '../utils/batchRegistration';
 import {courrierReferences} from '../utils/courrierReferences';
 import { numberingRequest } from '../services/numberingService';
 import CourrierNumberingFields from '../components/CourrierNumberingFields';
@@ -326,18 +326,23 @@ const EnregistrerCourrierListe: React.FC = () => {
     if(urgency)setRows(previous=>previous.map(row=>status[row.id]==='saved'||row.extraFields[urgency.name]!==undefined?row:{...row,extraFields:{...row.extraFields,[urgency.name]:'3'}}));
   }, [extraColumns]);
 
-  // Synchroniser les lignes non sauvegardées avec les options globales Sens/Type
+  const applyRegistrationContext = (nextSens: SensCourrier, requestedType: TypeCourrier) => {
+    if (savingLock.current) return;
+    const nextType = user && !canCreateExterne ? TypeCourrier.INTERNE : requestedType;
+    setActiveSens(nextSens);setActiveType(nextType);
+    const sender=registrationSender(user,entities,filterLevels);
+    const allowedFields=new Set(registrationSections(formConfig?.[nextSens]?.[nextType] || []).flatMap(section=>section.columns.flatMap(column=>column.fields.map(field=>field.name))));
+    setRows(previous=>previous.map(row=>status[row.id]==='saved'||(row.sens===nextSens&&row.type===nextType)?row:{...batchContextRow(row,{sens:nextSens,type:nextType}),expediteur:sender.name,destinataire:'',entiteEmetteur:nextType===TypeCourrier.INTERNE?sender.cascade:{},entiteDestinataire:{},extraFields:Object.fromEntries(Object.entries(row.extraFields).filter(([name])=>allowedFields.has(name)))}));
+    setErrors(previous=>Object.fromEntries(Object.entries(previous).filter(([id])=>status[id]==='saved')));
+    setStatus(previous=>Object.fromEntries(Object.entries(previous).map(([id,state])=>[id,state==='saved'?state:'idle'])));
+    setBatchNotice('');
+  };
   useEffect(() => {
-    setRows(prev => prev.map(r => {
-      // Ne pas modifier les lignes déjà sauvegardées (vérification via closure sur status)
-      if (status[r.id]==='saved')return r;
-      if (r.sens === activeSens && r.type === activeType) return r;
-      // Mettre à jour le sens et type pour correspondre aux options globales
-      return { ...r, sens: activeSens, type: activeType, expediteur:user?.nom || '',destinataire:'',entiteEmetteur:{},entiteDestinataire:{},extraFields:{} };
-    }));
-  }, [activeSens, activeType]);
-
-  useEffect(() => { if (user && !canCreateExterne && activeType === TypeCourrier.EXTERNE) setActiveType(TypeCourrier.INTERNE); }, [user?.id,canCreateExterne,activeType]);
+    const sens=urlSens && Object.values(SensCourrier).includes(urlSens)?urlSens:activeSens;
+    const type=urlType && Object.values(TypeCourrier).includes(urlType)?urlType:activeType;
+    applyRegistrationContext(sens,type);
+  }, [urlSens,urlType,user?.id]);
+  useEffect(() => { if (user && !canCreateExterne && activeType===TypeCourrier.EXTERNE) applyRegistrationContext(activeSens,TypeCourrier.INTERNE); },[user?.id,canCreateExterne,activeType]);
 
   const upd = useCallback((id: string, f: keyof RowData, v: string) => {
     if(savingLock.current)return;
@@ -830,10 +835,11 @@ const EnregistrerCourrierListe: React.FC = () => {
       setBatchNotice('Attendez le chargement complet du formulaire ou réessayez le chargement avant d’enregistrer.');
       return;
     }
+    const submissionRows=rows.map(row=>status[row.id]==='saved'?row:batchContextRow(row,{type:activeType,sens:activeSens}));
     setBatchNotice('');
     const newErr: Record<string, RowError> = {};
     let hasErr = false;
-    for (const r of rows) {
+    for (const r of submissionRows) {
       if (status[r.id] === 'saved') continue;
       const e = validate(r, extraColumns); newErr[r.id] = e;
       if (Object.keys(e).length) hasErr = true;
@@ -851,7 +857,7 @@ const EnregistrerCourrierListe: React.FC = () => {
     setSaving(true);
 
     // Filtrer les courriers en attente
-    const pendingRows = rows.filter(r => status[r.id] !== 'saved');
+    const pendingRows = submissionRows.filter(r => status[r.id] !== 'saved');
 
     if (laravelApiService.isConfigured() && pendingRows.length > 0) {
       // Vérifier que le token d'authentification est disponible
@@ -1650,7 +1656,7 @@ const EnregistrerCourrierListe: React.FC = () => {
           <span className="text-xs font-bold text-surface-400 uppercase tracking-widest">Type</span>
           <div className="flex items-center bg-surface-100 rounded-xl p-0.5">
             {Object.values(SensCourrier).map(s => (
-              <button disabled={saving} key={s} onClick={() => setActiveSens(s)}
+              <button disabled={saving} key={s} onClick={() => applyRegistrationContext(s,activeType)}
                 className={`px-3 py-1.5 rounded-[10px] text-xs font-bold transition-all ${
                   activeSens === s
                     ? 'bg-white shadow text-blue-600 border border-surface-200'
@@ -1662,7 +1668,7 @@ const EnregistrerCourrierListe: React.FC = () => {
           </div>
           <div className="flex items-center bg-surface-100 rounded-xl p-0.5">
             {Object.values(TypeCourrier).map(t => (
-              <button title={t === TypeCourrier.EXTERNE && !canCreateExterne ? 'Réservé au secrétariat DG et à l’administrateur' : undefined} disabled={saving || (t === TypeCourrier.EXTERNE && !canCreateExterne)} key={t} onClick={() => setActiveType(t)}
+              <button title={t === TypeCourrier.EXTERNE && !canCreateExterne ? 'Réservé au secrétariat DG et à l’administrateur' : undefined} disabled={saving || (t === TypeCourrier.EXTERNE && !canCreateExterne)} key={t} onClick={() => applyRegistrationContext(activeSens,t)}
                 className={`px-3 py-1.5 rounded-[10px] text-xs font-bold transition-all ${
                   activeType === t
                     ? 'bg-white shadow text-indigo-600 border border-surface-200'

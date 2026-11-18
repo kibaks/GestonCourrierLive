@@ -1,3 +1,4 @@
+import {courrierStatusLabel} from '../utils/courrierStatus';
 import CourrierWorkflowPanel from '../components/courriers/CourrierWorkflowPanel';
 import { markCourrierRead } from '../services/courrierReadService';
 import { courrierReferences, courrierSearchReferences } from '../utils/courrierReferences';
@@ -2114,15 +2115,7 @@ const DetailCourrier: React.FC = () => {
                 </p>
                 <div className="mt-2">
                   <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/15 border border-white/20 text-slate-200">
-                    {courrier.statut === StatutCourrier.ENREGISTRE ? 'Enregistré' :
-                     courrier.statut === StatutCourrier.EN_ATTENTE_DG ? 'En attente DG' :
-                     courrier.statut === StatutCourrier.ORIENTE_DG ? 'Orienté vers le DG' :
-                     courrier.statut === StatutCourrier.ORIENTE_DIRECTEUR ? 'Orienté vers le Directeur' :
-                     courrier.statut === StatutCourrier.EN_TRAITEMENT ? 'En traitement' :
-                     courrier.statut === StatutCourrier.ASSIGNE ? 'Assigné' :
-                     courrier.statut === StatutCourrier.TRAITE ? 'Traité' :
-                     courrier.statut === StatutCourrier.ARCHIVE ? 'Archivé' :
-                     String(courrier.statut).replace(/_/g, ' ')}
+                    {courrierStatusLabel(courrier.statut)}
                   </span>
                 </div>
               </div>

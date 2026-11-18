@@ -6,3 +6,7 @@ export function batchRequestId(keys:Record<string,string>,rowId:string,generate:
 export function batchSourceRow<T extends {id:string}>(created:{clientRequestId?:string|null},rows:T[],keys:Record<string,string>,index:number):T|undefined {
  return created.clientRequestId ? rows.find(row=>keys[row.id]===created.clientRequestId) : rows[index];
 }
+/** Capture the visible context at submission time, even before draft effects flush. */
+export function batchContextRow<T extends {type:string;sens:string}>(row:T,context:Pick<T,'type'|'sens'>):T {
+ return {...row,type:context.type,sens:context.sens};
+}
