@@ -209,6 +209,7 @@ export interface CategorieCourrier {
 }
 
 export interface Courrier {
+  orientationAlreadyForwarded?: boolean;
   isRead?: boolean;
   readAt?: string | null;
   id: string;

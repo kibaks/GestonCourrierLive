@@ -8339,7 +8339,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   title={`Statut: ${getStatutLabel(courrier.statut)}`}
                 >
                   <FontAwesomeIcon icon={faInfoCircle} className="w-3.5 h-3.5" />
-                  <span className="truncate">{getStatutLabel(courrier.statut)}</span>
+                  <span className="truncate">{getStatutLabel(courrier.statut)}</span>{courrier.orientationAlreadyForwarded && <span className="normal-case tracking-normal text-emerald-800" title="Vous avez déjà transmis ce courrier à cette étape"> · Déjà orienté</span>}
                 </span>
                 {(() => {
                   const dynamicPriority = getDynamicPriorityValue(courrier);
@@ -10398,7 +10398,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                               title={`Statut: ${getStatutLabel(courrier.statut)}`}
                             >
                               <FontAwesomeIcon icon={faInfoCircle} className="w-3.5 h-3.5" />
-                              <span className="truncate">{getStatutLabel(courrier.statut)}</span>
+                              <span className="truncate">{getStatutLabel(courrier.statut)}</span>{courrier.orientationAlreadyForwarded && <span className="normal-case tracking-normal text-emerald-800" title="Vous avez déjà transmis ce courrier à cette étape"> · Déjà orienté</span>}
                             </span>
                             {(() => {
                               const dynamicPriority = getDynamicPriorityValue(courrier);
@@ -10864,7 +10864,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 const c = contextMenu.courrier!;
                 const usersList = adminService.getAllUsers();
                 const cible = resolveOrientationTarget(c, usersList);
-                const alreadyOriented = !laravelApiService.isConfigured() && cible
+                const alreadyOriented = laravelApiService.isConfigured() ? c.orientationAlreadyForwarded === true : cible
                   ? (cible.target.role === Role.DIRECTEUR_GENERAL
                     ? (courrierIdsAssignedToDG.has(String(c.id)) || contextMenuCourrierOrientedToDG)
                     : (courrierIdsAssignedToDirectors.has(String(c.id)) || contextMenuCourrierOrientedToDirector))
@@ -10872,7 +10872,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 return (
                   <button
                     disabled={alreadyOriented}
-                    title={laravelApiService.isConfigured() ? 'Consulter les responsables autorisés à l’étape actuelle' : alreadyOriented ? 'Déjà orienté' : (cible ? `Destinataire : ${cible.motif} → ${cible.target.nom}` : 'Destinataire non reconnu : choisir la cible')}
+                    title={alreadyOriented ? 'Ce courrier a déjà été orienté par votre compte.' : laravelApiService.isConfigured() ? 'Consulter les responsables autorisés à l’étape actuelle' : alreadyOriented ? 'Déjà orienté' : (cible ? `Destinataire : ${cible.motif} → ${cible.target.nom}` : 'Destinataire non reconnu : choisir la cible')}
                     className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-t border-surface-100 mt-1 pt-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-50 text-amber-800 hover:bg-amber-50 disabled:hover:bg-surface-50"
                     onClick={async () => {
                       if (alreadyOriented) return;
@@ -10920,7 +10920,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     }}
                   >
                     <FontAwesomeIcon icon={faArrowRight} className="w-4 h-4 text-amber-600" />
-                    {laravelApiService.isConfigured() ? 'Orienter selon le circuit' : alreadyOriented ? 'Déjà orienté' : cible ? `Orienter vers ${cible.target.nom}` : 'Orienter (choisir la cible)'}
+                    {alreadyOriented ? 'Déjà orienté' : laravelApiService.isConfigured() ? 'Orienter selon le circuit' : alreadyOriented ? 'Déjà orienté' : cible ? `Orienter vers ${cible.target.nom}` : 'Orienter (choisir la cible)'}
                   </button>
                 );
               })()}
@@ -11548,7 +11548,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     return !orientManualByCourrier[id];
                   })) ||
                   (!laravelApiService.isConfigured() && courrierBulkActionType === 'orienter-dg' && selectedCourriers.size > 0 && Array.from(selectedCourriers).every(id => courrierIdsAssignedToDG.has(id))) ||
-                  (laravelApiService.isConfigured() && ['orienter','orienter-dg','orienter-direction'].includes(courrierBulkActionType || '') && orientationOptionsLoading) ||
+                  (laravelApiService.isConfigured() && ['orienter','orienter-dg','orienter-direction'].includes(courrierBulkActionType || '') && (orientationOptionsLoading || Array.from(selectedCourriers).some(id => !orientationOptions[String(id)]?.options?.targets.length))) ||
                   bulkOrienterLoading
                 }
                 className={`px-6 py-2.5 text-white rounded-xl font-semibold shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:from-surface-300 disabled:to-surface-400 disabled:cursor-not-allowed ${
