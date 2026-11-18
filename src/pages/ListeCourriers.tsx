@@ -1,4 +1,4 @@
-import {courrierStatusLabel, courrierCycleStatuses, matchesCourrierStatus} from '../utils/courrierStatus';
+import {courrierStatusLabel, courrierCycleStatuses, matchesCourrierStatus, canInitiallyOrient} from '../utils/courrierStatus';
 import CourrierDrawer from '../components/courriers/CourrierDrawer';
 import { markCourrierRead, COURRIER_READ_EVENT } from '../services/courrierReadService';
 import CourrierSummary, { CourrierCorrespondents } from '../components/courriers/CourrierSummary';
@@ -2495,6 +2495,7 @@ const ListeCourriers: React.FC = () => {
       const result=await executeOrientationBatch(ids,async id => {
         const courrier=courriers.find(item=>String(item.id)===id);
         if (!courrier) throw new Error('Le courrier n’est plus présent dans la liste. Rechargez la liste.');
+        if (!canInitiallyOrient(courrier.statut)) throw new Error('Seuls les courriers en attente d’orientation peuvent être orientés.');
         const options=await profileRequest<OrientationOptions>(`courriers/${id}/orientation-options`);
         let targetId: string | undefined=orientManualByCourrier[id];
         if (mode==='orienter-dg') {
@@ -2506,7 +2507,7 @@ const ListeCourriers: React.FC = () => {
           if (!targetId) throw new Error('La direction choisie ne correspond pas à la prochaine étape autorisée du circuit.');
         }
         const submission=resolveOrientationSubmission(options,targetId,orientationAnnotations[id]);
-        await profileRequest('assignations',{courrierId:id,...submission,instructions:'Transmission selon le circuit et le destinataire du courrier.'});
+        await profileRequest('assignations',{courrierId:id,...submission,initialOrientation:true,instructions:'Transmission selon le circuit et le destinataire du courrier.'});
       },progress=>setLoadingOperations(prev=>({...prev,progress})));
       const message=orientationResultMessage(result,id=>{const c=courriers.find(item=>String(item.id)===id);return c?courrierReferences(c):id;});
       setLoadingOperations(prev=>({...prev,update:false,completed:true,success:!result.errors.length,error:result.errors.length?message.message:undefined}));
@@ -2934,6 +2935,7 @@ const ListeCourriers: React.FC = () => {
   const [orientationOptions, setOrientationOptions] = useState<Record<string, {options?: OrientationOptions; error?: string}>>({});
   const [orientationOptionsLoading, setOrientationOptionsLoading] = useState(false);
   const [orientationAnnotations, setOrientationAnnotations] = useState<Record<string, string>>({});
+  const selectedOrientationAllowed=selectedCourriers.size>0&&Array.from(selectedCourriers).every(id=>{const courrier=courriers.find(item=>String(item.id)===String(id));return courrier&&canInitiallyOrient(courrier.statut);});
 
   useEffect(() => {
     if (!showCourrierBulkModal || !laravelApiService.isConfigured() || !['orienter','orienter-dg','orienter-direction'].includes(courrierBulkActionType || '')) return;
@@ -2942,7 +2944,10 @@ const ListeCourriers: React.FC = () => {
     setOrientationOptionsLoading(true);
     setOrientationOptions({});
     Promise.all(Array.from(selectedCourriers, async id => {
-      try { return [String(id), {options: await profileRequest<OrientationOptions>(`courriers/${id}/orientation-options`,undefined,'GET',controller.signal)}] as const; }
+      try {
+        const courrier=courriers.find(item=>String(item.id)===String(id));
+        if(!courrier||!canInitiallyOrient(courrier.statut))throw new Error('Seuls les courriers en attente d’orientation peuvent être orientés.');
+        return [String(id), {options: await profileRequest<OrientationOptions>(`courriers/${id}/orientation-options`,undefined,'GET',controller.signal)}] as const; }
       catch (error) { return [String(id), {error: error instanceof Error ? error.message : 'Chargement des cibles impossible.'}] as const; }
     })).then(entries => { if (active) {
       const fresh=Object.fromEntries(entries) as Record<string,{options?:OrientationOptions;error?:string}>;
@@ -9728,11 +9733,12 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           <>
                             {isDGSecretary(user) && (
                               <button
+                                disabled={!selectedOrientationAllowed}
                                 onClick={() => {
                                   setCourrierBulkActionType('orienter');
                                   setShowCourrierBulkModal(true);
                                 }}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Orienter les courriers selon leur destinataire (DG ou directeur de la direction)"
                               >
                                 <FontAwesomeIcon icon={faArrowRight} className="text-[10px]" />
@@ -9742,23 +9748,25 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                             {user?.role === Role.SUPER_ADMIN && (
                               <>
                                 <button
+                                disabled={!selectedOrientationAllowed}
                                   onClick={() => {
                                     setCourrierBulkActionType('orienter-dg');
                                     setShowCourrierBulkModal(true);
                                   }}
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                   title="Orienter les courriers vers le Directeur Général"
                                 >
                                   <FontAwesomeIcon icon={faArrowRight} className="text-[10px]" />
                                   Vers DG
                                 </button>
                                 <button
+                                disabled={!selectedOrientationAllowed}
                                   onClick={() => {
                                     setCourrierBulkActionType('orienter-direction');
                                     setCourrierBulkOrienterDirectionNom(null);
                                     setShowCourrierBulkModal(true);
                                   }}
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                   title="Orienter les courriers vers une direction"
                                 >
                                   <FontAwesomeIcon icon={faBuilding} className="text-[10px]" />
@@ -10853,11 +10861,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   : false;
                 return (
                   <button
-                    disabled={alreadyOriented}
-                    title={alreadyOriented ? 'Ce courrier a déjà été orienté par votre compte.' : laravelApiService.isConfigured() ? 'Consulter les responsables autorisés à l’étape actuelle' : alreadyOriented ? 'Déjà orienté' : (cible ? `Destinataire : ${cible.motif} → ${cible.target.nom}` : 'Destinataire non reconnu : choisir la cible')}
+                    disabled={alreadyOriented || !canInitiallyOrient(c.statut)}
+                    title={!canInitiallyOrient(c.statut) ? 'Seuls les courriers en attente d’orientation peuvent être orientés.' : alreadyOriented ? 'Ce courrier a déjà été orienté par votre compte.' : laravelApiService.isConfigured() ? 'Consulter les responsables autorisés à l’étape actuelle' : alreadyOriented ? 'Déjà orienté' : (cible ? `Destinataire : ${cible.motif} → ${cible.target.nom}` : 'Destinataire non reconnu : choisir la cible')}
                     className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-t border-surface-100 mt-1 pt-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-50 text-amber-800 hover:bg-amber-50 disabled:hover:bg-surface-50"
                     onClick={async () => {
-                      if (alreadyOriented) return;
+                      if (alreadyOriented || !canInitiallyOrient(c.statut)) return;
                       if (laravelApiService.isConfigured() || !cible) {
                         // Repli manuel : ouvre la modale d'orientation avec ce courrier sélectionné
                         setContextMenu(prev => ({ ...prev, open: false }));
@@ -10902,7 +10910,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     }}
                   >
                     <FontAwesomeIcon icon={faArrowRight} className="w-4 h-4 text-amber-600" />
-                    {alreadyOriented ? 'Déjà orienté' : laravelApiService.isConfigured() ? 'Orienter selon le circuit' : alreadyOriented ? 'Déjà orienté' : cible ? `Orienter vers ${cible.target.nom}` : 'Orienter (choisir la cible)'}
+                    {alreadyOriented ? 'Déjà orienté' : !canInitiallyOrient(c.statut) ? 'Orientation indisponible' : laravelApiService.isConfigured() ? 'Orienter selon le circuit' : alreadyOriented ? 'Déjà orienté' : cible ? `Orienter vers ${cible.target.nom}` : 'Orienter (choisir la cible)'}
                   </button>
                 );
               })()}
@@ -11523,7 +11531,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     return !orientManualByCourrier[id];
                   })) ||
                   (!laravelApiService.isConfigured() && courrierBulkActionType === 'orienter-dg' && selectedCourriers.size > 0 && Array.from(selectedCourriers).every(id => courrierIdsAssignedToDG.has(id))) ||
-                  (laravelApiService.isConfigured() && ['orienter','orienter-dg','orienter-direction'].includes(courrierBulkActionType || '') && (orientationOptionsLoading || Array.from(selectedCourriers).some(id => !orientationOptions[String(id)]?.options?.targets.length))) ||
+                  (laravelApiService.isConfigured() && ['orienter','orienter-dg','orienter-direction'].includes(courrierBulkActionType || '') && (!selectedOrientationAllowed || orientationOptionsLoading || Array.from(selectedCourriers).some(id => !orientationOptions[String(id)]?.options?.targets.length))) ||
                   bulkOrienterLoading
                 }
                 className={`px-6 py-2.5 text-white rounded-xl font-semibold shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:from-surface-300 disabled:to-surface-400 disabled:cursor-not-allowed ${

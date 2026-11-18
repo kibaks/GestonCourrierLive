@@ -12,3 +12,5 @@ export function courrierStatusGroup(status:string):string {
   return status;
 }
 export function matchesCourrierStatus(status:string,filter:string):boolean {return filter==='ALL'||courrierStatusGroup(status)===courrierStatusGroup(filter);}
+
+export function canInitiallyOrient(status:string):boolean {return courrierStatusGroup(status)==='ENREGISTRE';}

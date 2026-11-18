@@ -37,3 +37,7 @@ test('a fully successful batch is the only success alert',async()=>{
 test('empty targets show the actual workflow reason',()=>{
   assert.throws(()=>resolveOrientationSubmission({...options,targets:[],blockedReason:'Ce courrier est déjà traité.'}),/déjà traité/);
 });
+
+test('list orientation rejects an already-oriented status even if a later circuit target exists',()=>{
+ assert.throws(()=>resolveOrientationSubmission({...options,initialOrientation:false}),/en attente d’orientation/);
+});
