@@ -40,6 +40,8 @@ import { archivageService } from '../services/archivageService';
 import { laravelApiService } from '../services/laravelApiService';
 import { adminService } from '../services/adminService';
 import { isDGSecretary, resolveOrientationTarget, getDG, getDirecteurs } from '../utils/orientation';
+import {profileRequest} from '../services/profileService';
+import {executeOrientationBatch, orientationResultMessage, resolveOrientationSubmission, type OrientationOptions} from '../services/orientationBatch';
 import { taskCompletionService } from '../services/taskCompletionService';
 import { realTimeTaskSyncService } from '../services/realTimeTaskSyncService';
 import { scannerService, checkScannerBackendHealth, Scanner, DEFAULT_SCAN_SETTINGS, type ScanSettings, type ScanFormat, type ScanSource, type ScanOrientation, type ScanPageSize } from '../services/scannerService';
@@ -2483,7 +2485,44 @@ const ListeCourriers: React.FC = () => {
     }
   };
 
+  const handleApiBulkOrientation = async (mode: 'orienter' | 'orienter-dg' | 'orienter-direction') => {
+    if (!user?.id || !selectedCourriers.size || bulkOrienterLoading) return;
+    setBulkOrienterLoading(true);
+    setLoadingOperations(prev => ({...prev, update:true, operationName:'Orientation des courriers', progress:0, completed:false, success:false}));
+    try {
+      const ids=Array.from(selectedCourriers,String);
+      const result=await executeOrientationBatch(ids,async id => {
+        const courrier=courriers.find(item=>String(item.id)===id);
+        if (!courrier) throw new Error('Le courrier n’est plus présent dans la liste. Rechargez la liste.');
+        const options=await profileRequest<OrientationOptions>(`courriers/${id}/orientation-options`);
+        let targetId: string | undefined=orientManualByCourrier[id];
+        if (mode==='orienter-dg') {
+          targetId=options.targets.find(target=>target.role===Role.DIRECTEUR_GENERAL)?.id;
+          if (!targetId) throw new Error('Le circuit prévoit une autre étape avant la transmission au DG.');
+        } else if (mode==='orienter-direction') {
+          const users=adminService.getAllUsers();
+          targetId=options.targets.find(target=>users.some(person=>String(person.id)===target.id && person.direction===courrierBulkOrienterDirectionNom))?.id;
+          if (!targetId) throw new Error('La direction choisie ne correspond pas à la prochaine étape autorisée du circuit.');
+        }
+        const submission=resolveOrientationSubmission(options,targetId,orientationAnnotations[id]);
+        await profileRequest('assignations',{courrierId:id,...submission,instructions:'Transmission selon le circuit et le destinataire du courrier.'});
+      },progress=>setLoadingOperations(prev=>({...prev,progress})));
+      const message=orientationResultMessage(result,id=>{const c=courriers.find(item=>String(item.id)===id);return c?courrierReferences(c):id;});
+      setLoadingOperations(prev=>({...prev,update:false,completed:true,success:!result.errors.length,error:result.errors.length?message.message:undefined}));
+      setSelectedCourriers(new Set(result.errors.map(error=>error.id)));
+      if (!result.errors.length) {
+        setShowCourrierBulkModal(false);setCourrierBulkActionType(null);setOrientManualByCourrier({});setOrientationAnnotations({});
+      }
+      showAlert(message.message,message.type);
+      await loadCourriers();
+    } catch (error) {
+      setLoadingOperations(prev=>({...prev,update:false,completed:true,success:false}));
+      showAlert(error instanceof Error?error.message:'Transmission impossible.','error');
+    } finally { setBulkOrienterLoading(false); }
+  };
+
   const handleBulkOrienterVersDG = async () => {
+    if (laravelApiService.isConfigured()) return handleApiBulkOrientation('orienter-dg');
     if (selectedCourriers.size === 0 || !user?.id) return;
 
     // P11 — bouton « Vers DG » (super admin) : cible toujours le Directeur Général
@@ -2557,6 +2596,7 @@ const ListeCourriers: React.FC = () => {
   // par SON DESTINATAIRE — Direction Générale → DG ; direction X → directeur de X.
   // Repli : courrier sans destinataire reconnu → cible manuelle (orientManualByCourrier, choisie dans la modale).
   const handleBulkOrienter = async () => {
+    if (laravelApiService.isConfigured()) return handleApiBulkOrientation('orienter');
     if (selectedCourriers.size === 0 || !user?.id) return;
 
     const count = selectedCourriers.size;
@@ -2676,6 +2716,7 @@ const ListeCourriers: React.FC = () => {
     }
   };
   const handleBulkOrienterVersDirection = async () => {
+    if (laravelApiService.isConfigured()) return handleApiBulkOrientation('orienter-direction');
     if (selectedCourriers.size === 0 || !courrierBulkOrienterDirectionNom || !user?.id) return;
     // P11 — correction : le responsable d'une direction est un DIRECTEUR (et non DIRECTEUR_GENERAL)
     const directeurs = adminService.getAllUsers().filter(u => u.role === Role.DIRECTEUR && u.direction === courrierBulkOrienterDirectionNom && u.actif);
@@ -2889,6 +2930,28 @@ const ListeCourriers: React.FC = () => {
   const [courrierBulkActionType, setCourrierBulkActionType] = useState<'move' | 'statut' | 'priorite' | 'orienter' | 'orienter-dg' | 'orienter-direction' | null>(null);
   // P11 — cible manuelle par courrier (repli quand le destinataire n'est pas reconnu) — { courrierId: userId }
   const [orientManualByCourrier, setOrientManualByCourrier] = useState<Record<string, string>>({});
+  const [orientationOptions, setOrientationOptions] = useState<Record<string, {options?: OrientationOptions; error?: string}>>({});
+  const [orientationOptionsLoading, setOrientationOptionsLoading] = useState(false);
+  const [orientationAnnotations, setOrientationAnnotations] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!showCourrierBulkModal || !laravelApiService.isConfigured() || !['orienter','orienter-dg','orienter-direction'].includes(courrierBulkActionType || '')) return;
+    let active = true;
+    const controller = new AbortController();
+    setOrientationOptionsLoading(true);
+    setOrientationOptions({});
+    Promise.all(Array.from(selectedCourriers, async id => {
+      try { return [String(id), {options: await profileRequest<OrientationOptions>(`courriers/${id}/orientation-options`,undefined,'GET',controller.signal)}] as const; }
+      catch (error) { return [String(id), {error: error instanceof Error ? error.message : 'Chargement des cibles impossible.'}] as const; }
+    })).then(entries => { if (active) {
+      const fresh=Object.fromEntries(entries) as Record<string,{options?:OrientationOptions;error?:string}>;
+      setOrientationOptions(fresh);
+      setOrientManualByCourrier(prev=>Object.fromEntries(Object.entries(prev).filter(([id,target])=>fresh[id]?.options?.targets.some(person=>person.id===target))));
+    } })
+      .finally(() => { if (active) setOrientationOptionsLoading(false); });
+    return () => { active = false; controller.abort(); };
+  }, [showCourrierBulkModal, courrierBulkActionType, selectedCourriers]);
+
   const [courrierBulkMoveTargetFolderId, setCourrierBulkMoveTargetFolderId] = useState<string | null>(null);
   const [courrierBulkStatut, setCourrierBulkStatut] = useState<StatutCourrier | ''>('');
   const [courrierBulkPriorite, setCourrierBulkPriorite] = useState<Priorite | ''>('');
@@ -10801,7 +10864,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 const c = contextMenu.courrier!;
                 const usersList = adminService.getAllUsers();
                 const cible = resolveOrientationTarget(c, usersList);
-                const alreadyOriented = cible
+                const alreadyOriented = !laravelApiService.isConfigured() && cible
                   ? (cible.target.role === Role.DIRECTEUR_GENERAL
                     ? (courrierIdsAssignedToDG.has(String(c.id)) || contextMenuCourrierOrientedToDG)
                     : (courrierIdsAssignedToDirectors.has(String(c.id)) || contextMenuCourrierOrientedToDirector))
@@ -10809,11 +10872,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 return (
                   <button
                     disabled={alreadyOriented}
-                    title={alreadyOriented ? 'Déjà orienté' : (cible ? `Destinataire : ${cible.motif} → ${cible.target.nom}` : 'Destinataire non reconnu : choisir la cible')}
+                    title={laravelApiService.isConfigured() ? 'Consulter les responsables autorisés à l’étape actuelle' : alreadyOriented ? 'Déjà orienté' : (cible ? `Destinataire : ${cible.motif} → ${cible.target.nom}` : 'Destinataire non reconnu : choisir la cible')}
                     className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-t border-surface-100 mt-1 pt-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-50 text-amber-800 hover:bg-amber-50 disabled:hover:bg-surface-50"
                     onClick={async () => {
                       if (alreadyOriented) return;
-                      if (!cible) {
+                      if (laravelApiService.isConfigured() || !cible) {
                         // Repli manuel : ouvre la modale d'orientation avec ce courrier sélectionné
                         setContextMenu(prev => ({ ...prev, open: false }));
                         setSelectedCourriers(new Set([String(c.id)]));
@@ -10857,7 +10920,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     }}
                   >
                     <FontAwesomeIcon icon={faArrowRight} className="w-4 h-4 text-amber-600" />
-                    {alreadyOriented ? 'Déjà orienté' : cible ? `Orienter vers ${cible.target.nom}` : 'Orienter (choisir la cible)'}
+                    {laravelApiService.isConfigured() ? 'Orienter selon le circuit' : alreadyOriented ? 'Déjà orienté' : cible ? `Orienter vers ${cible.target.nom}` : 'Orienter (choisir la cible)'}
                   </button>
                 );
               })()}
@@ -11351,14 +11414,42 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
               ) : courrierBulkActionType === 'orienter' ? (
                 <div className="space-y-3">
                   <p className="text-sm text-surface-700">
-                    La cible de chaque courrier est déterminée par son <span className="font-semibold">destinataire</span> :
-                    Direction Générale → <span className="font-semibold">DG</span> ; direction X → <span className="font-semibold">directeur de X</span>.
-                    Une assignation en attente sera créée pour chaque courrier.
+                    Le prochain responsable dépend du destinataire et de l’étape active du circuit. Les validations prévues sont conservées.
                   </p>
                   <div className="max-h-56 overflow-y-auto border border-surface-200 rounded-xl divide-y divide-surface-100">
                     {Array.from(selectedCourriers).map(id => {
                       const courrier = courriers.find(c => String(c.id) === String(id));
                       if (!courrier) return null;
+                      if (laravelApiService.isConfigured()) {
+                        const entry=orientationOptions[String(courrier.id)];
+                        const options=entry?.options;
+                        return <div key={courrier.id} className="px-3 py-3 space-y-2">
+                          <div className="text-xs font-semibold text-surface-800">{courrierReferences(courrier)}</div>
+                          <p className="text-xs text-surface-500 break-words">Destinataire du courrier : {courrier.destinataire || 'non renseigné'}</p>
+                          {orientationOptionsLoading ? <p role="status" className="text-xs">Chargement des étapes autorisées…</p>
+                            : entry?.error ? <p role="alert" className="text-xs text-red-700">{entry.error}</p>
+                            : !options?.targets.length ? <p className="text-xs text-amber-800">Aucune orientation disponible à cette étape. Consultez le circuit du courrier.</p>
+                            : <>
+                              <label className="block text-xs font-medium" htmlFor={`orientation-target-${courrier.id}`}>Prochain responsable du circuit</label>
+                              <select id={`orientation-target-${courrier.id}`} value={orientManualByCourrier[courrier.id] || (options.targets.length===1?options.targets[0].id:'')}
+                                onChange={event=>setOrientManualByCourrier(prev=>({...prev,[courrier.id]:event.target.value}))}
+                                className="w-full min-w-0 max-w-full text-xs border border-surface-200 rounded-lg px-2 py-2 bg-white">
+                                <option value="">Choisir le responsable…</option>
+                                {options.targets.map(person=><option key={person.id} value={person.id}>{person.nom}</option>)}
+                              </select>
+                              {options.requiresDgAnnotation && <>
+                                <label className="block text-xs font-medium" htmlFor={`orientation-note-${courrier.id}`}>Instruction du DG</label>
+                                <select id={`orientation-note-${courrier.id}`} value={orientationAnnotations[courrier.id] || ''}
+                                  onChange={event=>setOrientationAnnotations(prev=>({...prev,[courrier.id]:event.target.value}))}
+                                  className="w-full min-w-0 max-w-full text-xs border border-surface-200 rounded-lg px-2 py-2 bg-white">
+                                  <option value="">Choisir l’instruction…</option>
+                                  {options.instructions.map(note=><option key={note.id} value={note.id}>{note.contenu.slice(0,120)}</option>)}
+                                </select>
+                                {!options.instructions.length && <p className="text-xs text-amber-800">Une instruction du DG est nécessaire avant cette affectation.</p>}
+                              </>}
+                            </>}
+                        </div>;
+                      }
                       const usersList = adminService.getAllUsers();
                       const cible = resolveOrientationTarget(courrier, usersList);
                       const already = cible
@@ -11450,13 +11541,14 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   (courrierBulkActionType === 'statut' && !courrierBulkStatut) ||
                   (courrierBulkActionType === 'priorite' && !courrierBulkPriorite) ||
                   (courrierBulkActionType === 'orienter-direction' && !courrierBulkOrienterDirectionNom) ||
-                  (courrierBulkActionType === 'orienter' && selectedCourriers.size > 0 && Array.from(selectedCourriers).every(id => {
+                  (!laravelApiService.isConfigured() && courrierBulkActionType === 'orienter' && selectedCourriers.size > 0 && Array.from(selectedCourriers).every(id => {
                     const c = courriers.find(x => String(x.id) === String(id));
                     const cible = c ? resolveOrientationTarget(c, adminService.getAllUsers()) : null;
                     if (cible) return cible.target.role === Role.DIRECTEUR_GENERAL ? courrierIdsAssignedToDG.has(id) : courrierIdsAssignedToDirectors.has(id);
                     return !orientManualByCourrier[id];
                   })) ||
-                  (courrierBulkActionType === 'orienter-dg' && selectedCourriers.size > 0 && Array.from(selectedCourriers).every(id => courrierIdsAssignedToDG.has(id))) ||
+                  (!laravelApiService.isConfigured() && courrierBulkActionType === 'orienter-dg' && selectedCourriers.size > 0 && Array.from(selectedCourriers).every(id => courrierIdsAssignedToDG.has(id))) ||
+                  (laravelApiService.isConfigured() && ['orienter','orienter-dg','orienter-direction'].includes(courrierBulkActionType || '') && orientationOptionsLoading) ||
                   bulkOrienterLoading
                 }
                 className={`px-6 py-2.5 text-white rounded-xl font-semibold shadow-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:from-surface-300 disabled:to-surface-400 disabled:cursor-not-allowed ${
