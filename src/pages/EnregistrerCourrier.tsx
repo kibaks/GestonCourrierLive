@@ -1815,7 +1815,7 @@ const EnregistrerCourrier: React.FC = () => {
                 </div>
                 
                 <div className="courrier-configured-form space-y-6">
-                    <div className="rounded-xl border border-surface-200 bg-surface-50 p-4"><label className="block text-sm font-semibold" htmlFor="registration-sender">Expéditeur · compte connecté</label><input id="registration-sender" value={formData.expediteur} readOnly className="mt-2 w-full rounded-lg border bg-surface-100 px-3 py-2"/><p className="mt-2 text-xs text-slate-600">Renseigné automatiquement, non modifiable.{!isEditMode && registrationSender(user,entities,filterLevels).entity?.nom ? ` Entité : ${registrationSender(user,entities,filterLevels).entity!.nom}.` : ''}</p></div>
+                    <div className="rounded-xl border border-surface-200 bg-surface-50 p-4"><label className="block text-sm font-semibold" htmlFor="registration-sender">Expéditeur · entité de rattachement</label><input id="registration-sender" value={formData.expediteur} readOnly className="mt-2 w-full rounded-lg border bg-surface-100 px-3 py-2"/><p className="mt-2 text-xs text-slate-600">Entité associée au compte connecté. Renseignée automatiquement et non modifiable.</p></div>
                     {getAllFields().map((section: any) => (
                       <div key={section.id} className="space-y-4" style={section.style}>
                         {/* Afficher le titre de section si existant et différent de 'Infos' */}

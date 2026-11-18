@@ -102,7 +102,7 @@ const EnregistrerCourrierListe: React.FC = () => {
       direction: user?.direction ?? '',
       service: user?.service ?? '',
     };
-    defaults.expediteur = user?.nom || '';
+    defaults.expediteur = '';
     return defaults;
   };
 
@@ -1331,7 +1331,7 @@ const EnregistrerCourrierListe: React.FC = () => {
           </td>
           {/* Colonne 2: Expediteur/Destinataire */}
           <td className="px-2 py-1.5">
-            <div className="mb-2 rounded-lg bg-surface-50 p-2"><span className="block text-xs text-slate-500">Expéditeur automatique</span><strong className="block break-words text-sm">{row.expediteur || user?.nom}</strong><span className="text-xs text-slate-500">Non modifiable</span></div><div className="batch-letter-reference"><span>N° de lettre</span><strong>{letterNumberLoading ? 'Chargement…' : letterNumber || 'À définir dans le registre'}</strong></div>
+            <div className="mb-2 rounded-lg bg-surface-50 p-2"><span className="block text-xs text-slate-500">Expéditeur automatique</span><strong className="block break-words text-sm">{row.expediteur || (referenceLoading ? 'Chargement de l’entité…' : 'Entité non renseignée')}</strong><span className="text-xs text-slate-500">Non modifiable</span></div><div className="batch-letter-reference"><span>N° de lettre</span><strong>{letterNumberLoading ? 'Chargement…' : letterNumber || 'À définir dans le registre'}</strong></div>
             {row.type === TypeCourrier.INTERNE && <div className="mt-2 text-sm"><span className="block text-xs text-slate-500">Destinataire</span><span className="block break-words">{row.destinataire || 'À compléter dans les détails'}</span>{!row.destinataire&&<button type="button" disabled={saving||st==='saved'} className="mt-1 text-blue-700 underline" onClick={()=>setExpanded(previous=>({...previous,[row.id]:true}))}>Renseigner dans les détails</button>}</div>}
             {extraColumns.filter(field => (field.name === 'destinataire' || field.name === 'expediteur') && row.type !== TypeCourrier.INTERNE).map(participant => {
               const name = participant.name as 'expediteur' | 'destinataire';

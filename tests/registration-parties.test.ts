@@ -5,13 +5,13 @@ import type {EntiteOrganisationnelle} from '../src/types';
 import type {FormStructure} from '../src/services/formulaireCourrierService';
 const entities=[{id:'dg',nom:'Direction Générale',type:'direction_generale',actif:true},{id:'daf',nom:'Direction Administrative et Financière',type:'direction',parentId:'dg',actif:true},{id:'bureau',nom:'Bureau administratif',type:'bureau',parentId:'daf',actif:true}] as EntiteOrganisationnelle[];
 const levels=[{code:'direction_generale',libelleSingulier:'Direction générale'},{code:'direction',libelleSingulier:'Direction'},{code:'bureau',libelleSingulier:'Bureau'}];
-test('sender comes from account and direction root rather than a selected recipient',()=>{
+test('sender is the actual assigned entity, including a bureau',()=>{
  const sender=registrationSender({nom:'Secrétariat DAF',entiteId:'bureau',direction:'Direction Administrative et Financière'},entities,levels);
- assert.equal(sender.name,'Secrétariat DAF');assert.equal(sender.entity?.id,'daf');assert.deepEqual(sender.cascade,{direction:'daf',direction_generale:'dg'});
+ assert.equal(sender.name,'Bureau administratif');assert.equal(sender.entity?.id,'bureau');assert.deepEqual(sender.cascade,{bureau:'bureau',direction:'daf',direction_generale:'dg'});
 });
 test('DG secretary resolves its own entity; missing assignment never guesses another entity',()=>{
- assert.equal(registrationSender({nom:'Secrétariat DG',entiteId:'dg',direction:'Direction Générale'},entities,levels).entity?.id,'dg');
- assert.equal(registrationSender({nom:'Sans rattachement'},entities,levels).entity,undefined);
+ const dg=registrationSender({nom:'Secrétariat DG',entiteId:'dg',direction:'Direction Générale'},entities,levels);assert.equal(dg.entity?.id,'dg');assert.equal(dg.name,'Direction Générale');
+ assert.equal(registrationSender({nom:'Sans rattachement'},entities,levels).entity,undefined);assert.equal(registrationSender({nom:'Sans rattachement'},entities,levels).name,'');
 });
 test('all layouts remove editable sender and require a recipient without altering published config',()=>{
  const sections=[{id:'s',type:'section',label:'Informations',columns:[{id:'c',width:6,fields:[{id:'e',name:'expediteur',label:'Expéditeur',required:true},{id:'o',name:'objet',label:'Objet',required:true}]}]}] as FormStructure;
