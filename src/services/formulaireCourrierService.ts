@@ -170,14 +170,6 @@ const getDefaultByType = (): Record<TypeCourrier, FormStructure> => ({
               placeholder: 'Nom du destinataire'
             },
             {
-              id: 'referenceExterne',
-              name: 'referenceExterne',
-              label: 'Référence Externe',
-              type: 'text',
-              required: false,
-              placeholder: 'Référence du courrier externe'
-            },
-            {
               id: 'urgence',
               name: 'urgence',
               label: 'Niveau d\'Urgence',

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {registrationSender,registrationSections,internalRegistrationIssue} from '../src/utils/registrationParties';
+import {registrationSender,registrationSections,internalRegistrationIssue,externalIncomingRecipient} from '../src/utils/registrationParties';
 import type {EntiteOrganisationnelle} from '../src/types';
 import type {FormStructure} from '../src/services/formulaireCourrierService';
 const entities=[{id:'dg',nom:'Direction Générale',type:'direction_generale',actif:true},{id:'daf',nom:'Direction Administrative et Financière',type:'direction',parentId:'dg',actif:true},{id:'bureau',nom:'Bureau administratif',type:'bureau',parentId:'daf',actif:true}] as EntiteOrganisationnelle[];
@@ -40,4 +40,11 @@ test('internal invalid parties are explained before submitting, without a networ
  assert.match(internalRegistrationIssue(entities[1],entities[2])||'',/uniquement entre la Direction Générale/);
  assert.equal(internalRegistrationIssue(entities[0],entities[1]),undefined);
  assert.equal(internalRegistrationIssue(entities[1],entities[0]),undefined);
+});
+
+test('external incoming uses DG reception and leaves internal/outgoing destinations editable',()=>{
+ assert.equal(externalIncomingRecipient('EXTERNE','ENTRANT',entities,entities[0])?.nom,'Direction Générale');
+ assert.equal(externalIncomingRecipient('EXTERNE','ENTRANT',entities,entities[2])?.id,'dg');
+ assert.equal(externalIncomingRecipient('INTERNE','ENTRANT',entities,entities[0]),undefined);
+ assert.equal(externalIncomingRecipient('EXTERNE','SORTANT',entities,entities[0]),undefined);
 });

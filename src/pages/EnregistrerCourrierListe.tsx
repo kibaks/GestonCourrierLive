@@ -1,4 +1,4 @@
-import {registrationSender, registrationSections, internalRegistrationIssue} from '../utils/registrationParties';
+import {registrationSender, registrationSections, internalRegistrationIssue, externalIncomingRecipient} from '../utils/registrationParties';
 import { internalEntityFields,cascadeForEntity } from '../utils/internalEntities';
 import {batchRequestId,batchSourceRow,batchContextRow,batchRegistrationFailure} from '../utils/batchRegistration';
 import {courrierReferences} from '../utils/courrierReferences';
@@ -343,6 +343,11 @@ const EnregistrerCourrierListe: React.FC = () => {
     applyRegistrationContext(sens,type);
   }, [urlSens,urlType,user?.id]);
   useEffect(() => { if (user && !canCreateExterne && activeType===TypeCourrier.EXTERNE) applyRegistrationContext(activeSens,TypeCourrier.INTERNE); },[user?.id,canCreateExterne,activeType]);
+
+  useEffect(() => {
+    const central=externalIncomingRecipient(activeType,activeSens,entities,registrationSender(user,entities,filterLevels).entity);
+    if(central)setRows(previous=>previous.map(row=>status[row.id]==='saved'||row.destinataire===central.nom?row:{...row,destinataire:central.nom}));
+  },[activeType,activeSens,entities,user?.entiteId,user?.direction,rows.length]);
 
   const upd = useCallback((id: string, f: keyof RowData, v: string) => {
     if(savingLock.current)return;
@@ -835,7 +840,8 @@ const EnregistrerCourrierListe: React.FC = () => {
       setBatchNotice('Attendez le chargement complet du formulaire ou réessayez le chargement avant d’enregistrer.');
       return;
     }
-    const submissionRows=rows.map(row=>status[row.id]==='saved'?row:batchContextRow(row,{type:activeType,sens:activeSens}));
+    const central=externalIncomingRecipient(activeType,activeSens,entities,registrationSender(user,entities,filterLevels).entity);
+    const submissionRows=rows.map(row=>status[row.id]==='saved'?row:{...batchContextRow(row,{type:activeType,sens:activeSens}),...(central?{destinataire:central.nom}:{})});
     setBatchNotice('');
     const newErr: Record<string, RowError> = {};
     let hasErr = false;
@@ -1361,7 +1367,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                   return <label key={entityLevel.code} htmlFor={`batch-${name}-${row.id}-${entityLevel.code}`}><span>{entityLevel.libelleSingulier}</span><select id={`batch-${name}-${row.id}-${entityLevel.code}`} value={cascade[entityLevel.code] || ''} onChange={event => name === 'expediteur' ? updEntiteEmetteur(row.id,entityLevel.code,event.target.value,levelIndex) : updEntiteDestinataire(row.id,entityLevel.code,event.target.value,levelIndex)} disabled={saving || st === 'saved' || referenceLoading}><option value="">Choisir…</option>{getEntitiesForLevel(entityLevel.code,parent).map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
                 })}
                 {err[name] && <span role="alert" className="text-xs text-red-600">{err[name]}</span>}
-              </div> : <MaterialInput key={name} label={field.label} required={field.required} value={row[name]} onChange={event => upd(row.id,name,event.target.value)} disabled={saving || st === 'saved'} error={err[name]} />;
+              </div> : <div key={name}><MaterialInput label={field.label} required={field.required} value={row[name]} onChange={event => upd(row.id,name,event.target.value)} disabled={saving || st === 'saved' || (name==='destinataire' && row.type===TypeCourrier.EXTERNE && row.sens===SensCourrier.ENTRANT)} error={err[name]} />{name==='destinataire' && row.type===TypeCourrier.EXTERNE && row.sens===SensCourrier.ENTRANT && <p className="mt-1 text-xs text-slate-500">Réception initiale par la Direction Générale, avant orientation interne.</p>}</div>;
             })}
           </td>
           {/* Colonne 3: Objet */}
@@ -1444,7 +1450,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                           const isDirect = DIRECT_ROW_KEYS.has(col.name);
                           const val = isDirect ? String(row[col.name as keyof RowData] ?? '') : (row.extraFields[col.name] ?? '');
                           const errMsg = err[col.name];
-                          const dis = saving || st === 'saved';
+                          const dis = saving || st === 'saved' || (col.name==='destinataire' && row.type===TypeCourrier.EXTERNE && row.sens===SensCourrier.ENTRANT);
                           const chg = (v: string) => isDirect ? upd(row.id, col.name as keyof RowData, v) : updExtra(row.id, col.name, v);
                           const inp = `w-full px-3 py-2 rounded-xl border-2 text-sm focus:outline-none ${errMsg ? 'border-red-300 bg-red-50' : 'border-surface-200'} ${dis ? 'opacity-60 cursor-not-allowed' : ''}`;
                           return (

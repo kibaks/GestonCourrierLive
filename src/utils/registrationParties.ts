@@ -35,3 +35,9 @@ export function internalRegistrationIssue(sender:Pick<EntiteOrganisationnelle,'i
   if(sender.id===recipient.id)return `${sender.nom} est déjà l’entité expéditrice. Choisissez une autre entité destinataire : une entité ne peut pas s’adresser un courrier à elle-même.`;
   if(sender.type!=='direction_generale'&&recipient.type!=='direction_generale')return 'Les courriers internes circulent uniquement entre la Direction Générale et une autre entité. Choisissez la Direction Générale comme destinataire.';
 }
+
+export function externalIncomingRecipient(type:string,sens:string,entities:EntiteOrganisationnelle[],accountEntity?:EntiteOrganisationnelle):EntiteOrganisationnelle|undefined {
+  if(type!=='EXTERNE'||sens!=='ENTRANT')return;
+  if(accountEntity?.actif!==false&&accountEntity?.type==='direction_generale')return accountEntity;
+  return entities.find(entity=>entity.actif!==false&&entity.type==='direction_generale'&&entity.nom==='Direction Générale');
+}
