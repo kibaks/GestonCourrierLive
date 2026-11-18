@@ -29,3 +29,9 @@ export function registrationSections(sections: FormStructure): FormStructure {
   }
   return result;
 }
+
+export function internalRegistrationIssue(sender:Pick<EntiteOrganisationnelle,'id'|'nom'|'type'>|undefined,recipient:Pick<EntiteOrganisationnelle,'id'|'nom'|'type'>|undefined):string|undefined {
+  if(!sender||!recipient)return;
+  if(sender.id===recipient.id)return `${sender.nom} est déjà l’entité expéditrice. Choisissez une autre entité destinataire : une entité ne peut pas s’adresser un courrier à elle-même.`;
+  if(sender.type!=='direction_generale'&&recipient.type!=='direction_generale')return 'Les courriers internes circulent uniquement entre la Direction Générale et une autre entité. Choisissez la Direction Générale comme destinataire.';
+}

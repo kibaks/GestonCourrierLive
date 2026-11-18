@@ -10,3 +10,9 @@ export function batchSourceRow<T extends {id:string}>(created:{clientRequestId?:
 export function batchContextRow<T extends {type:string;sens:string}>(row:T,context:Pick<T,'type'|'sens'>):T {
  return {...row,type:context.type,sens:context.sens};
 }
+
+export function batchRegistrationFailure(error:unknown):string {
+ const reason=error instanceof Error?error.message:typeof error==='string'?error:'';
+ if(/failed to fetch|networkerror|network request failed/i.test(reason))return 'Connexion à l’API interrompue. Votre saisie est conservée ; réessayez lorsque la connexion revient.';
+ return reason.trim() || 'Enregistrement impossible. Réessayez ou consultez le détail de la ligne.';
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {registrationSender,registrationSections} from '../src/utils/registrationParties';
+import {registrationSender,registrationSections,internalRegistrationIssue} from '../src/utils/registrationParties';
 import type {EntiteOrganisationnelle} from '../src/types';
 import type {FormStructure} from '../src/services/formulaireCourrierService';
 const entities=[{id:'dg',nom:'Direction Générale',type:'direction_generale',actif:true},{id:'daf',nom:'Direction Administrative et Financière',type:'direction',parentId:'dg',actif:true},{id:'bureau',nom:'Bureau administratif',type:'bureau',parentId:'daf',actif:true}] as EntiteOrganisationnelle[];
@@ -33,4 +33,11 @@ test('custom sender and recipient aliases obey the same immutable sender rule',(
 test('recipient is never duplicated across configured sections or aliases',()=>{
  const sections=[{id:'s',type:'section',label:'Infos',columns:[{id:'c',width:12,fields:[{id:'d',name:'destinataire',label:'Destinataire'},{id:'d2',name:'recipientUnite',label:'Entité destinataire'}]}]}] as FormStructure;
  assert.equal(registrationSections(sections).flatMap(s=>s.columns.flatMap(c=>c.fields)).filter(f=>f.name==='destinataire').length,1);
+});
+
+test('internal invalid parties are explained before submitting, without a network error',()=>{
+ assert.match(internalRegistrationIssue(entities[0],entities[0])||'',/déjà l’entité expéditrice/);
+ assert.match(internalRegistrationIssue(entities[1],entities[2])||'',/uniquement entre la Direction Générale/);
+ assert.equal(internalRegistrationIssue(entities[0],entities[1]),undefined);
+ assert.equal(internalRegistrationIssue(entities[1],entities[0]),undefined);
 });

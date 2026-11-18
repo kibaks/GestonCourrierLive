@@ -1,6 +1,6 @@
-import {registrationSender, registrationSections} from '../utils/registrationParties';
+import {registrationSender, registrationSections, internalRegistrationIssue} from '../utils/registrationParties';
 import { internalEntityFields,cascadeForEntity } from '../utils/internalEntities';
-import {batchRequestId,batchSourceRow,batchContextRow} from '../utils/batchRegistration';
+import {batchRequestId,batchSourceRow,batchContextRow,batchRegistrationFailure} from '../utils/batchRegistration';
 import {courrierReferences} from '../utils/courrierReferences';
 import { numberingRequest } from '../services/numberingService';
 import CourrierNumberingFields from '../components/CourrierNumberingFields';
@@ -841,7 +841,14 @@ const EnregistrerCourrierListe: React.FC = () => {
     let hasErr = false;
     for (const r of submissionRows) {
       if (status[r.id] === 'saved') continue;
-      const e = validate(r, extraColumns); newErr[r.id] = e;
+      const e = validate(r, extraColumns);
+      if(r.type===TypeCourrier.INTERNE){
+        const selected=filterLevels.map(level=>entities.find(entity=>entity.id===r.entiteDestinataire[level.code])).filter((entity):entity is EntiteOrganisationnelle=>!!entity);
+        const recipient=selected[selected.length-1] || entities.find(entity=>entity.nom===r.destinataire.trim());
+        const issue=internalRegistrationIssue(registrationSender(user,entities,filterLevels).entity,recipient);
+        if(issue)e.destinataire=issue;
+      }
+      newErr[r.id] = e;
       if (Object.keys(e).length) hasErr = true;
     }
     setErrors(newErr);
@@ -961,6 +968,7 @@ const EnregistrerCourrierListe: React.FC = () => {
       pendingRows.forEach(row=>batchRequestId(requestIdByRow,row.id,()=>crypto.randomUUID()));
 
 
+      const registrationFailures: Array<{id:string;reason:string}>=[];
       // Créer un courrier + uploader ses fichiers, puis mettre à jour le statut (fallback séquentiel)
       const saveSingleLaravel = async (r: RowData): Promise<Courrier | null> => {
         try {
@@ -972,13 +980,14 @@ const EnregistrerCourrierListe: React.FC = () => {
         } catch (error) {
           console.error('[SaveAll] Erreur création courrier:', error);
           setStatus(p => ({ ...p, [r.id]: 'error' }));
-          setErrors(previous=>({...previous,[r.id]:{...previous[r.id],_server:error instanceof Error?error.message:'Enregistrement impossible.'}}));
+          const reason=batchRegistrationFailure(error);registrationFailures.push({id:r.id,reason});
+          setErrors(previous=>({...previous,[r.id]:{...previous[r.id],_server:reason}}));
           return null;
         }
       };
 
       const created: Courrier[] = [];
-      let firstError: string | null = null;
+
 
       // Tentative en bulk : une seule requête API pour tous les courriers
       try {
@@ -1025,20 +1034,20 @@ const EnregistrerCourrierListe: React.FC = () => {
         for (let i = 0; i < pendingRows.length; i += BATCH) {
           const batch = pendingRows.slice(i, i + BATCH);
           const results = await Promise.all(batch.map(saveSingleLaravel));
-          results.forEach(c => { if (c) created.push(c); else if (!firstError) firstError = 'Échec enregistrement'; });
+          results.forEach(c => { if (c) created.push(c); });
         }
       }
 
       const successCount = created.length;
       console.log(`[SaveAll] Total opération : ${successCount}/${pendingRows.length} courriers sauvegardés en ${(performance.now() - saveStart).toFixed(0)}ms`);
 
-      if (firstError && successCount === 0) {
+      if (registrationFailures.length) {
         setDialog({
           isOpen: true,
           options: {
-            type: 'error',
-            title: 'Erreur lors de l\'enregistrement',
-            message: `Impossible d'enregistrer les courriers. Vérifiez la connexion à l'API.`,
+            type: successCount ? 'warning' : 'error',
+            title: successCount ? 'Enregistrement partiel' : 'Erreur lors de l\'enregistrement',
+            message: `${successCount ? successCount+' courrier(s) enregistré(s).\n' : ''}${registrationFailures.sort((a,b)=>rows.findIndex(row=>row.id===a.id)-rows.findIndex(row=>row.id===b.id)).map(failure=>'Ligne '+(rows.findIndex(row=>row.id===failure.id)+1)+' : '+failure.reason).join('\n')}\nVotre saisie est conservée. Corrigez les lignes signalées, puis réessayez.`,
             confirmText: 'OK',
             onConfirm: () => setDialog({ isOpen: false, options: { message: '' } }),
           }
