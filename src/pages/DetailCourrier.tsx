@@ -1442,6 +1442,13 @@ const DetailCourrier: React.FC = () => {
     if (!id || !user || !courrier) return;
     
     try {
+      const freshFiles = await categorieFichierService.getCategoriesFichiersByCourrier(id);
+      const existing = freshFiles.find(f => f.type === 'fichier' && (f.estAccuseReception || f.nom.startsWith('AR_')));
+      if (existing) {
+        setAccuseGeneratedInSession(true);
+        await loadDossiersFichiers(id);
+        return;
+      }
       // Créer le dossier "Accusés de réception" si nécessaire
       let parentId: string | undefined = dossierAccusesIdOverride ?? currentDossierAccusesId;
       if (!parentId) {
@@ -1450,12 +1457,12 @@ const DetailCourrier: React.FC = () => {
       }
 
       // Passer tous les fichiers — le service sélectionne et intègre tous les fichiers rendables
-      const allFiles = dossiersFichiers;
+      const allFiles = freshFiles;
       const mainDocument = getMainDocumentForAccuse();
       const accuseFile = await generateAccusePdf(courrier, mainDocument || ({} as any), user, allFiles);
 
       // Créer un blob URL local pour affichage immédiat (contourne l'appel API)
-      const blobUrl = URL.createObjectURL(accuseFile);
+
 
       // Enregistrer l'accusé
       const savedFile = await categorieFichierService.createFichier(id, accuseFile.name, accuseFile, parentId, user.id, accuseFile.size, true);
@@ -1465,7 +1472,8 @@ const DetailCourrier: React.FC = () => {
       setAccuseGeneratedInSession(true);
 
       // Notifier l'expéditeur
-      await notifyExpediteurAccuseReception(courrier);
+      if (!savedFile.receiptAlreadyExists) await notifyExpediteurAccuseReception(courrier);
+      const blobUrl = await categorieFichierService.getFileDisplayUrl(savedFile);
 
       // Ouvrir la modale avec le blob URL local (pas besoin d'appel API supplémentaire)
       setImagePreviewSize(null);
@@ -1712,7 +1720,7 @@ const DetailCourrier: React.FC = () => {
             return;
           }
         } catch (e) {
-          console.warn('[AR] Re-vérification fraîche impossible, génération locale continue:', e);
+          throw e;
         }
 
         await generateAccuseFromMainDocument(dossierARIdFrais);

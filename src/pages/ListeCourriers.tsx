@@ -289,7 +289,8 @@ const ListeCourriers: React.FC = () => {
       console.log('📄 [DEBUG] Création du fichier d\'accusé de réception pour:', courrier.numero);
 
       // Récupérer tous les fichiers du courrier
-      const fichiers = dossiersFichiers.get(courrier.id) || [];
+      const fichiers = await categorieFichierService.getCategoriesFichiersByCourrier(courrier.id);
+      if (fichiers.some(f => f.type === 'fichier' && (f.estAccuseReception || f.nom.startsWith('AR_')))) return;
       const hasFiles = fichiers.some(f =>
         f.type === 'fichier' &&
         !f.estAccuseReception &&

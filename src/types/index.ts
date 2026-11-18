@@ -183,6 +183,7 @@ export interface Service {
 }
 
 export interface CategorieFichier {
+  receiptAlreadyExists?: boolean;
   id: string;
   nom: string;
   type: 'categorie' | 'fichier';

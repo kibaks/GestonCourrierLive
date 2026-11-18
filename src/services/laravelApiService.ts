@@ -733,7 +733,7 @@ class LaravelApiService {
     const data = await res.json();
     const raw = data?.data ?? data;
     this.invalidate(`GET:fichiers:${courrierId}`);
-    return parseCategorieFichierFromApi(raw);
+    return { ...parseCategorieFichierFromApi(raw), receiptAlreadyExists: data?.alreadyExists === true };
   }
 
   private fileToBase64(file: File): Promise<string> {
