@@ -1,4 +1,4 @@
-import {registrationSender, registrationSections, externalIncomingRecipient} from '../utils/registrationParties';
+import {registrationSender, registrationSections, lockedRegistrationRecipient} from '../utils/registrationParties';
 import { internalEntityFields, cascadeForEntity } from '../utils/internalEntities';
 import { courrierReferences } from '../utils/courrierReferences';
 import { profileRequest } from '../services/profileService';
@@ -1358,10 +1358,14 @@ const EnregistrerCourrier: React.FC = () => {
     setAreEntitiesLocked(false);
   }, [user?.id, user?.nom, user?.entiteId, user?.direction, entities, formData.type, formData.expediteur, isEditMode]);
 
+  const fixedRecipient=lockedRegistrationRecipient(formData.type,formData.sens,entities,registrationSender(user,entities,filterLevels).entity);
   useEffect(() => {
     if(isEditMode)return;
-    const central=externalIncomingRecipient(formData.type,formData.sens,entities,registrationSender(user,entities,filterLevels).entity);
-    if(central)setFormData(previous=>previous.destinataire===central.nom?previous:{...previous,destinataire:central.nom});
+    const central=fixedRecipient;
+    if(central){
+      setFormData(previous=>previous.destinataire===central.nom?previous:{...previous,destinataire:central.nom});
+      setEntiteDestinataire(cascadeForEntity(central.id,filterLevels,entities));
+    }
   },[formData.type,formData.sens,entities,user?.entiteId,user?.direction,isEditMode]);
 
   useEffect(() => {
@@ -1836,7 +1840,7 @@ const EnregistrerCourrier: React.FC = () => {
                           {section.columns?.map((column: any) => (
                             <div key={column.id} className={`space-y-4 ${['lg:col-span-1','lg:col-span-2','lg:col-span-3','lg:col-span-4','lg:col-span-5','lg:col-span-6','lg:col-span-7','lg:col-span-8','lg:col-span-9','lg:col-span-10','lg:col-span-11','lg:col-span-12'][Math.max(1,Math.min(12,column.width || 12))-1]}`} style={column.style}>
                               {column.fields?.map((field: any) => (
-                                field.name==='destinataire' && formData.type===TypeCourrier.EXTERNE && formData.sens===SensCourrier.ENTRANT ? <div key={field.id} className="space-y-3"><label className="block text-sm font-semibold" htmlFor="external-incoming-recipient">{field.label}</label><input id="external-incoming-recipient" value={formData.destinataire} readOnly className="w-full rounded-xl border bg-surface-50 px-3 py-3"/><p className="text-sm text-slate-600">Réception initiale par la Direction Générale, avant orientation vers une entité interne.</p></div> :
+                                field.name==='destinataire' && !!fixedRecipient ? <div key={field.id} className="space-y-3"><label className="block text-sm font-semibold" htmlFor="fixed-registration-recipient">{field.label}</label><input id="fixed-registration-recipient" value={formData.destinataire} readOnly className="w-full rounded-xl border bg-surface-50 px-3 py-3"/><p className="text-sm text-slate-600">{isEditMode?'Le destinataire enregistré est conservé.':formData.type===TypeCourrier.INTERNE?'Les courriers émis par votre direction sont adressés à la Direction Générale.':'Réception initiale par la Direction Générale, avant orientation vers une entité interne.'}</p></div> :
                                 <div key={field.id} className="space-y-3">
                                   <label className="flex items-center gap-2 text-sm font-semibold leading-relaxed text-slate-700">
                                     <FontAwesomeIcon icon={faTag} className="text-indigo-500" />

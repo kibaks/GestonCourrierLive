@@ -1,4 +1,4 @@
-import {registrationSender, registrationSections, internalRegistrationIssue, externalIncomingRecipient} from '../utils/registrationParties';
+import {registrationSender, registrationSections, internalRegistrationIssue, lockedRegistrationRecipient} from '../utils/registrationParties';
 import { internalEntityFields,cascadeForEntity } from '../utils/internalEntities';
 import {batchRequestId,batchSourceRow,batchContextRow,batchRegistrationFailure} from '../utils/batchRegistration';
 import {courrierReferences} from '../utils/courrierReferences';
@@ -345,8 +345,8 @@ const EnregistrerCourrierListe: React.FC = () => {
   useEffect(() => { if (user && !canCreateExterne && activeType===TypeCourrier.EXTERNE) applyRegistrationContext(activeSens,TypeCourrier.INTERNE); },[user?.id,canCreateExterne,activeType]);
 
   useEffect(() => {
-    const central=externalIncomingRecipient(activeType,activeSens,entities,registrationSender(user,entities,filterLevels).entity);
-    if(central)setRows(previous=>previous.map(row=>status[row.id]==='saved'||row.destinataire===central.nom?row:{...row,destinataire:central.nom}));
+    const central=lockedRegistrationRecipient(activeType,activeSens,entities,registrationSender(user,entities,filterLevels).entity);
+    if(central){const cascade=cascadeForEntity(central.id,filterLevels,entities);setRows(previous=>previous.map(row=>status[row.id]==='saved'||(row.destinataire===central.nom&&JSON.stringify(row.entiteDestinataire)===JSON.stringify(cascade))?row:{...row,destinataire:central.nom,entiteDestinataire:cascade}));}
   },[activeType,activeSens,entities,user?.entiteId,user?.direction,rows.length]);
 
   const upd = useCallback((id: string, f: keyof RowData, v: string) => {
@@ -840,8 +840,8 @@ const EnregistrerCourrierListe: React.FC = () => {
       setBatchNotice('Attendez le chargement complet du formulaire ou réessayez le chargement avant d’enregistrer.');
       return;
     }
-    const central=externalIncomingRecipient(activeType,activeSens,entities,registrationSender(user,entities,filterLevels).entity);
-    const submissionRows=rows.map(row=>status[row.id]==='saved'?row:{...batchContextRow(row,{type:activeType,sens:activeSens}),...(central?{destinataire:central.nom}:{})});
+    const central=lockedRegistrationRecipient(activeType,activeSens,entities,registrationSender(user,entities,filterLevels).entity);
+    const submissionRows=rows.map(row=>status[row.id]==='saved'?row:{...batchContextRow(row,{type:activeType,sens:activeSens}),...(central?{destinataire:central.nom,entiteDestinataire:cascadeForEntity(central.id,filterLevels,entities)}:{})});
     setBatchNotice('');
     const newErr: Record<string, RowError> = {};
     let hasErr = false;
@@ -1327,6 +1327,7 @@ const EnregistrerCourrierListe: React.FC = () => {
 
   const renderCourrierRow = (row: RowData, idx: number, level: number = 0) => {
     const st = status[row.id] || 'idle';
+    const fixedRecipient=st==='saved'?undefined:lockedRegistrationRecipient(row.type,row.sens,entities,registrationSender(user,entities,filterLevels).entity);
     const letterNumber = receipts[row.id]?.reference || letterNumbers[draftRows.findIndex(draft => draft.id === row.id)] || '';
     const err = errors[row.id] || {};
     const isDragged = draggedRowId === row.id;
@@ -1367,7 +1368,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                   return <label key={entityLevel.code} htmlFor={`batch-${name}-${row.id}-${entityLevel.code}`}><span>{entityLevel.libelleSingulier}</span><select id={`batch-${name}-${row.id}-${entityLevel.code}`} value={cascade[entityLevel.code] || ''} onChange={event => name === 'expediteur' ? updEntiteEmetteur(row.id,entityLevel.code,event.target.value,levelIndex) : updEntiteDestinataire(row.id,entityLevel.code,event.target.value,levelIndex)} disabled={saving || st === 'saved' || referenceLoading}><option value="">Choisir…</option>{getEntitiesForLevel(entityLevel.code,parent).map(entity => <option key={entity.id} value={entity.id}>{entity.nom}</option>)}</select></label>;
                 })}
                 {err[name] && <span role="alert" className="text-xs text-red-600">{err[name]}</span>}
-              </div> : <div key={name}><MaterialInput label={field.label} required={field.required} value={row[name]} onChange={event => upd(row.id,name,event.target.value)} disabled={saving || st === 'saved' || (name==='destinataire' && row.type===TypeCourrier.EXTERNE && row.sens===SensCourrier.ENTRANT)} error={err[name]} />{name==='destinataire' && row.type===TypeCourrier.EXTERNE && row.sens===SensCourrier.ENTRANT && <p className="mt-1 text-xs text-slate-500">Réception initiale par la Direction Générale, avant orientation interne.</p>}</div>;
+              </div> : <div key={name}><MaterialInput label={field.label} required={field.required} value={row[name]} onChange={event => upd(row.id,name,event.target.value)} disabled={saving || st === 'saved' || (name==='destinataire' && !!fixedRecipient)} error={err[name]} />{name==='destinataire' && !!fixedRecipient && <p className="mt-1 text-xs text-slate-500">Réception initiale par la Direction Générale, avant orientation interne.</p>}</div>;
             })}
           </td>
           {/* Colonne 3: Objet */}
@@ -1450,12 +1451,14 @@ const EnregistrerCourrierListe: React.FC = () => {
                           const isDirect = DIRECT_ROW_KEYS.has(col.name);
                           const val = isDirect ? String(row[col.name as keyof RowData] ?? '') : (row.extraFields[col.name] ?? '');
                           const errMsg = err[col.name];
-                          const dis = saving || st === 'saved' || (col.name==='destinataire' && row.type===TypeCourrier.EXTERNE && row.sens===SensCourrier.ENTRANT);
+                          const dis = saving || st === 'saved' || (col.name==='destinataire' && !!fixedRecipient);
                           const chg = (v: string) => isDirect ? upd(row.id, col.name as keyof RowData, v) : updExtra(row.id, col.name, v);
                           const inp = `w-full px-3 py-2 rounded-xl border-2 text-sm focus:outline-none ${errMsg ? 'border-red-300 bg-red-50' : 'border-surface-200'} ${dis ? 'opacity-60 cursor-not-allowed' : ''}`;
                           return (
                             <div key={col.name}>
-                              {row.type === TypeCourrier.INTERNE && ['expediteur','destinataire'].includes(col.name) ? (
+                              {col.name==='destinataire' && fixedRecipient ? (
+                                <div><label className="block text-sm font-medium" htmlFor={`locked-recipient-${row.id}`}>{col.label}{col.required?' *':''}</label><input id={`locked-recipient-${row.id}`} value={fixedRecipient.nom} readOnly className="mt-1 w-full rounded-xl border bg-surface-50 px-3 py-2 text-slate-900"/><p className="mt-1 text-xs text-slate-600">Destinataire fixé à la Direction Générale.</p></div>
+                              ) : row.type === TypeCourrier.INTERNE && ['expediteur','destinataire'].includes(col.name) ? (
                                 <div className="batch-inline-entities">
                                   <span className="batch-entity-caption">{col.label}{col.required ? ' *' : ''}</span>
                                   {filterLevels.map((entityLevel,levelIndex) => {

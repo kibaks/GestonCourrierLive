@@ -48,3 +48,14 @@ test('external incoming uses DG reception and leaves internal/outgoing destinati
  assert.equal(externalIncomingRecipient('INTERNE','ENTRANT',entities,entities[0]),undefined);
  assert.equal(externalIncomingRecipient('EXTERNE','SORTANT',entities,entities[0]),undefined);
 });
+
+import {lockedRegistrationRecipient} from '../src/utils/registrationParties';
+test('direction and nested bureaux always address new internal letters to their DG',()=>{
+ for(const sens of ['ENTRANT','SORTANT'])for(const entity of [entities[1],entities[2]])assert.equal(lockedRegistrationRecipient('INTERNE',sens,entities,entity)?.id,'dg');
+ assert.equal(lockedRegistrationRecipient('INTERNE','SORTANT',entities,entities[0]),undefined);
+ assert.equal(lockedRegistrationRecipient('INTERNE','SORTANT',entities),undefined);
+});
+test('recipient lock follows the actual DG ancestor rather than another central entity',()=>{
+ const other={id:'other-dg',nom:'Autre DG',type:'direction_generale',actif:true} as EntiteOrganisationnelle;
+ assert.equal(lockedRegistrationRecipient('INTERNE','SORTANT',[other,...entities],entities[2])?.id,'dg');
+});

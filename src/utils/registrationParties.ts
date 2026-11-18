@@ -41,3 +41,18 @@ export function externalIncomingRecipient(type:string,sens:string,entities:Entit
   if(accountEntity?.actif!==false&&accountEntity?.type==='direction_generale')return accountEntity;
   return entities.find(entity=>entity.actif!==false&&entity.type==='direction_generale'&&entity.nom==='Direction Générale');
 }
+
+/** Direction-originating letters are always addressed to their own DG ancestor. */
+export function lockedRegistrationRecipient(type:string,sens:string,entities:EntiteOrganisationnelle[],accountEntity?:EntiteOrganisationnelle):EntiteOrganisationnelle|undefined {
+  const incoming=externalIncomingRecipient(type,sens,entities,accountEntity);
+  if(incoming)return incoming;
+  if(type!=='INTERNE'||!accountEntity||accountEntity.actif===false)return;
+  let current:EntiteOrganisationnelle|undefined=accountEntity;
+  const seen=new Set<string>();let direction=false;
+  while(current&&!seen.has(current.id)){
+    seen.add(current.id);
+    if(current.type==='direction')direction=true;
+    if(current.type==='direction_generale')return direction?current:undefined;
+    current=entities.find(entity=>entity.actif!==false&&entity.id===current?.parentId);
+  }
+}
