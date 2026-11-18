@@ -211,6 +211,8 @@ export interface CategorieCourrier {
 
 export interface Courrier {
   orientationAlreadyForwarded?: boolean;
+  orientationPendingReception?: boolean;
+  orientationAwaitingPreviousStep?: boolean;
   isRead?: boolean;
   readAt?: string | null;
   id: string;

@@ -14,3 +14,9 @@ export function courrierStatusGroup(status:string):string {
 export function matchesCourrierStatus(status:string,filter:string):boolean {return filter==='ALL'||courrierStatusGroup(status)===courrierStatusGroup(filter);}
 
 export function canInitiallyOrient(status:string):boolean {return courrierStatusGroup(status)==='ENREGISTRE';}
+
+/** Server-confirmed reception in the current direction, after upstream validations. */
+export function canOrientListedCourrier(courrier: {statut:string;orientationAlreadyForwarded?:boolean;orientationPendingReception?:boolean;orientationAwaitingPreviousStep?:boolean}):boolean {
+  return !courrier.orientationAlreadyForwarded && !courrier.orientationAwaitingPreviousStep
+    && (canInitiallyOrient(courrier.statut) || courrier.orientationPendingReception === true);
+}

@@ -1,4 +1,4 @@
-import {courrierStatusLabel, courrierCycleStatuses, matchesCourrierStatus, canInitiallyOrient} from '../utils/courrierStatus';
+import {courrierStatusLabel, courrierCycleStatuses, matchesCourrierStatus, canOrientListedCourrier} from '../utils/courrierStatus';
 import CourrierDrawer from '../components/courriers/CourrierDrawer';
 import { markCourrierRead, COURRIER_READ_EVENT } from '../services/courrierReadService';
 import CourrierSummary, { CourrierCorrespondents } from '../components/courriers/CourrierSummary';
@@ -2496,7 +2496,7 @@ const ListeCourriers: React.FC = () => {
       const result=await executeOrientationBatch(ids,async id => {
         const courrier=courriers.find(item=>String(item.id)===id);
         if (!courrier) throw new Error('Le courrier n’est plus présent dans la liste. Rechargez la liste.');
-        if (!canInitiallyOrient(courrier.statut)) throw new Error('Seuls les courriers en attente d’orientation peuvent être orientés.');
+        if (!canOrientListedCourrier(courrier)) throw new Error('Seuls les courriers en attente d’orientation peuvent être orientés.');
         const options=await profileRequest<OrientationOptions>(`courriers/${id}/orientation-options`);
         let targetId: string | undefined=orientManualByCourrier[id];
         if (mode==='orienter-dg') {
@@ -2936,7 +2936,7 @@ const ListeCourriers: React.FC = () => {
   const [orientationOptions, setOrientationOptions] = useState<Record<string, {options?: OrientationOptions; error?: string}>>({});
   const [orientationOptionsLoading, setOrientationOptionsLoading] = useState(false);
   const [orientationAnnotations, setOrientationAnnotations] = useState<Record<string, string>>({});
-  const selectedOrientationAllowed=selectedCourriers.size>0&&Array.from(selectedCourriers).every(id=>{const courrier=courriers.find(item=>String(item.id)===String(id));return courrier&&canInitiallyOrient(courrier.statut);});
+  const selectedOrientationAllowed=selectedCourriers.size>0&&Array.from(selectedCourriers).every(id=>{const courrier=courriers.find(item=>String(item.id)===String(id));return courrier&&canOrientListedCourrier(courrier);});
 
   useEffect(() => {
     if (!showCourrierBulkModal || !laravelApiService.isConfigured() || !['orienter','orienter-dg','orienter-direction'].includes(courrierBulkActionType || '')) return;
@@ -2947,7 +2947,7 @@ const ListeCourriers: React.FC = () => {
     Promise.all(Array.from(selectedCourriers, async id => {
       try {
         const courrier=courriers.find(item=>String(item.id)===String(id));
-        if(!courrier||!canInitiallyOrient(courrier.statut))throw new Error('Seuls les courriers en attente d’orientation peuvent être orientés.');
+        if(!courrier||!canOrientListedCourrier(courrier))throw new Error('Seuls les courriers en attente d’orientation peuvent être orientés.');
         return [String(id), {options: await profileRequest<OrientationOptions>(`courriers/${id}/orientation-options`,undefined,'GET',controller.signal)}] as const; }
       catch (error) { return [String(id), {error: error instanceof Error ? error.message : 'Chargement des cibles impossible.'}] as const; }
     })).then(entries => { if (active) {
@@ -10862,11 +10862,11 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                   : false;
                 return (
                   <button
-                    disabled={alreadyOriented || !canInitiallyOrient(c.statut)}
-                    title={!canInitiallyOrient(c.statut) ? 'Seuls les courriers en attente d’orientation peuvent être orientés.' : alreadyOriented ? 'Ce courrier a déjà été orienté par votre compte.' : laravelApiService.isConfigured() ? 'Consulter les responsables autorisés à l’étape actuelle' : alreadyOriented ? 'Déjà orienté' : (cible ? `Destinataire : ${cible.motif} → ${cible.target.nom}` : 'Destinataire non reconnu : choisir la cible')}
+                    disabled={alreadyOriented || !canOrientListedCourrier(c)}
+                    title={c.orientationAwaitingPreviousStep ? 'En attente des contrôles et validations précédents ; la transmission au Directeur sera disponible à réception dans votre secrétariat.' : !canOrientListedCourrier(c) ? 'Seuls les courriers en attente d’orientation peuvent être orientés.' : alreadyOriented ? 'Ce courrier a déjà été orienté par votre compte.' : laravelApiService.isConfigured() ? 'Consulter les responsables autorisés à l’étape actuelle' : alreadyOriented ? 'Déjà orienté' : (cible ? `Destinataire : ${cible.motif} → ${cible.target.nom}` : 'Destinataire non reconnu : choisir la cible')}
                     className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-t border-surface-100 mt-1 pt-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-surface-50 text-amber-800 hover:bg-amber-50 disabled:hover:bg-surface-50"
                     onClick={async () => {
-                      if (alreadyOriented || !canInitiallyOrient(c.statut)) return;
+                      if (alreadyOriented || !canOrientListedCourrier(c)) return;
                       if (laravelApiService.isConfigured() || !cible) {
                         // Repli manuel : ouvre la modale d'orientation avec ce courrier sélectionné
                         setContextMenu(prev => ({ ...prev, open: false }));
@@ -10911,7 +10911,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                     }}
                   >
                     <FontAwesomeIcon icon={faArrowRight} className="w-4 h-4 text-amber-600" />
-                    {alreadyOriented ? 'Déjà orienté' : !canInitiallyOrient(c.statut) ? 'Orientation indisponible' : laravelApiService.isConfigured() ? 'Orienter selon le circuit' : alreadyOriented ? 'Déjà orienté' : cible ? `Orienter vers ${cible.target.nom}` : 'Orienter (choisir la cible)'}
+                    {alreadyOriented ? 'Déjà orienté' : c.orientationAwaitingPreviousStep ? 'En attente de transmission' : !canOrientListedCourrier(c) ? 'Orientation indisponible' : laravelApiService.isConfigured() ? 'Orienter selon le circuit' : alreadyOriented ? 'Déjà orienté' : cible ? `Orienter vers ${cible.target.nom}` : 'Orienter (choisir la cible)'}
                   </button>
                 );
               })()}
