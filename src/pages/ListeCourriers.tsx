@@ -40,7 +40,7 @@ import { exportSettingsService, ExportSettings } from '../services/exportSetting
 import { archivageService } from '../services/archivageService';
 import { laravelApiService } from '../services/laravelApiService';
 import { adminService } from '../services/adminService';
-import { isDGSecretary, resolveOrientationTarget, getDG, getDirecteurs } from '../utils/orientation';
+import { resolveOrientationTarget, getDG, getDirecteurs } from '../utils/orientation';
 import {profileRequest} from '../services/profileService';
 import {executeOrientationBatch, orientationResultMessage, resolveOrientationSubmission, type OrientationOptions} from '../services/orientationBatch';
 import { taskCompletionService } from '../services/taskCompletionService';
@@ -806,7 +806,7 @@ const ListeCourriers: React.FC = () => {
       setContextMenuCourrierOrientedToDirector(false);
       return;
     }
-    if (!(isDGSecretary(user) || user.role === Role.SUPER_ADMIN)) {
+    if (!((user?.role === Role.SECRETAIRE) || user.role === Role.SUPER_ADMIN)) {
       setContextMenuCourrierOrientedToDirector(false);
       return;
     }
@@ -9729,10 +9729,10 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                           <FontAwesomeIcon icon={faExclamationTriangle} className="text-[10px]" />
                           Priorité
                         </button>
-                        {/* P11 — Orientation : secrétaire du DG (cible selon le destinataire) + super admin */}
-                        {(isDGSecretary(user) || user?.role === Role.SUPER_ADMIN) && (
+                        {/* P11 — Orientation : secrétariats DG et directions, selon le circuit */}
+                        {((user?.role === Role.SECRETAIRE) || user?.role === Role.SUPER_ADMIN) && (
                           <>
-                            {isDGSecretary(user) && (
+                            {(user?.role === Role.SECRETAIRE) && (
                               <button
                                 disabled={!selectedOrientationAllowed}
                                 onClick={() => {
@@ -9740,7 +9740,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                                   setShowCourrierBulkModal(true);
                                 }}
                                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="Orienter les courriers selon leur destinataire (DG ou directeur de la direction)"
+                                title="Présenter les courriers au responsable de votre secrétariat, selon le circuit"
                               >
                                 <FontAwesomeIcon icon={faArrowRight} className="text-[10px]" />
                                 Orienter
@@ -10850,7 +10850,7 @@ const getAppropriateDirector = (user: Utilisateur | null) => {
                 <FontAwesomeIcon icon={faCopy} className="w-4 h-4 text-surface-500" />
                 Copier le numéro
               </button>
-              {(isDGSecretary(user) || user?.role === Role.SUPER_ADMIN) && (() => {
+              {((user?.role === Role.SECRETAIRE) || user?.role === Role.SUPER_ADMIN) && (() => {
                 if (!user) return null;
                 const c = contextMenu.courrier!;
                 const usersList = adminService.getAllUsers();
