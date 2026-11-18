@@ -1,3 +1,4 @@
+import {selectCourrierDocument} from '../utils/courrierDocument';
 import {courrierStatusLabel} from '../utils/courrierStatus';
 import CourrierWorkflowPanel from '../components/courriers/CourrierWorkflowPanel';
 import { markCourrierRead } from '../services/courrierReadService';
@@ -1265,21 +1266,7 @@ const DetailCourrier: React.FC = () => {
   useEffect(() => {
     if (autoAnnotOpenedRef.current) return;
     if (searchParams.get('vue') !== 'annotations') return;
-    const isViewable = (f: CategorieFichier) =>
-      (f.extension === 'pdf' || (f.chemin || '').toLowerCase().endsWith('.pdf')) ||
-      (f.extension || '').toLowerCase().match(/^(jpe?g|png)$/) ||
-      (f.nom || '').toLowerCase().match(/\.(jpe?g|png)$/);
-    const isDerivedExport = (f: CategorieFichier) =>
-      f.nom.startsWith('annoté_') || f.nom.startsWith('traité_') || f.nom.startsWith('final_');
-    // Priorité au fichier principal (non-AR, non export dérivé) ; sinon 1er
-    // fichier visualisable non-AR.
-    const first =
-      dossiersFichiers.find(
-        (f) => f.type === 'fichier' && !f.estAccuseReception && !f.nom.startsWith('AR_') && !isDerivedExport(f) && isViewable(f)
-      ) ||
-      dossiersFichiers.find(
-        (f) => f.type === 'fichier' && !f.estAccuseReception && isViewable(f)
-      );
+    const first = selectCourrierDocument(dossiersFichiers);
     if (first) {
       autoAnnotOpenedRef.current = true;
       void openDocumentAnnotator(first, 1);
@@ -1461,9 +1448,6 @@ const DetailCourrier: React.FC = () => {
       const mainDocument = getMainDocumentForAccuse();
       const accuseFile = await generateAccusePdf(courrier, mainDocument || ({} as any), user, allFiles);
 
-      // Créer un blob URL local pour affichage immédiat (contourne l'appel API)
-
-
       // Enregistrer l'accusé
       const savedFile = await categorieFichierService.createFichier(id, accuseFile.name, accuseFile, parentId, user.id, accuseFile.size, true);
       
@@ -1473,17 +1457,8 @@ const DetailCourrier: React.FC = () => {
 
       // Notifier l'expéditeur
       if (!savedFile.receiptAlreadyExists) await notifyExpediteurAccuseReception(courrier);
-      const blobUrl = await categorieFichierService.getFileDisplayUrl(savedFile);
+      // Automatic receipt generation must not replace the document being viewed.
 
-      // Ouvrir la modale avec le blob URL local (pas besoin d'appel API supplémentaire)
-      setImagePreviewSize(null);
-      setImagePreviewZoom(1);
-      setImagePreviewRotation(0);
-      setImagePreviewFit('contain');
-      setEditMode(false);
-      setViewFileData({ fichier: { ...savedFile, extension: 'pdf' }, url: blobUrl, loadDone: true });
-      setShowViewFileModal(true);
-      
       console.log('📄 [DetailCourrier] Accusé généré à partir de tous les fichiers chargés');
     } catch (err: any) {
       console.error('Erreur lors de la génération de l\'accusé:', err);
@@ -1726,7 +1701,7 @@ const DetailCourrier: React.FC = () => {
         await generateAccuseFromMainDocument(dossierARIdFrais);
         await loadDossiersFichiers(id);
         accuseGenSessionCache.add(id);
-        showAlert('Accusé de réception généré avec succès.', 'success');
+        // Generated in the background; keep the original document in focus.
       } catch (err: any) {
         console.error('Erreur auto accusé de réception:', err);
         showAlert('Erreur lors de la génération de l\'accusé de réception.', 'error');
