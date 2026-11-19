@@ -10,7 +10,7 @@ export interface Profile extends Utilisateur {
 export interface Communications {
   mail: { enabled: boolean; host: string; port: number; encryption: string; username: string; password: string; fromAddress: string; fromName: string; hasSecret?: boolean };
   sms: { mode: 'test' | 'live'; enabled: boolean; sid: string; token: string; from: string; hasSecret?: boolean };
-  whatsapp: { enabled: boolean; from: string; contentSid: string };
+  whatsapp: { enabled: boolean; provider: 'twilio' | 'meta'; from: string; contentSid: string; accessToken: string; phoneNumberId: string; apiVersion: string; templateName: string; language: string; hasSecret?: boolean };
 }
 export async function profileRequest<T>(path: string, body?: unknown, method = 'POST', signal?: AbortSignal): Promise<T> {
   const base = getBaseUrl();

@@ -28,7 +28,7 @@ export default function CommunicationSettingsPanel() {
   };
   return <section className="rounded-2xl border border-surface-200 bg-white p-5 sm:p-8 shadow-card">
     <h2 className="text-xl font-bold text-surface-900">Messagerie de l’organisation</h2>
-    <p className="mt-2 text-sm text-surface-500">Administration · Compte ARMP et connexion Twilio pour les notifications.</p>
+    <p className="mt-2 text-sm text-surface-500">Administration · E-mail professionnel, SMS Twilio et WhatsApp Business Meta.</p>
     {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-red-700 whitespace-pre-line">{error}</p>}
     {success && <p role="status" className="mt-4 rounded-xl bg-green-50 p-3 text-green-800">{success}</p>}
     {!settings ? <p className="mt-5">{error ? 'Impossible de charger les réglages.' : 'Chargement des réglages…'}</p> : <form onSubmit={save} className="mt-6 space-y-6">
@@ -48,7 +48,7 @@ export default function CommunicationSettingsPanel() {
       <fieldset disabled={busy} className="border-t border-surface-100 pt-5 space-y-4">
         <legend className="font-bold text-surface-900">SMS · Twilio</legend>
         <label className="block text-sm">Type d’identifiants<select className={input} value={settings.sms.mode} onChange={e => change('sms', 'mode', e.target.value)}><option value="test">Test · aucun envoi réel</option><option value="live">Live · envois réels</option></select></label>
-        {settings.sms.mode === 'test' && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Identifiants de test enregistrés. Les SMS et WhatsApp ne peuvent pas être activés avec ces identifiants. Pour passer en Live, remplacez le SID et le jeton par ceux du compte Live.</p>}
+        {settings.sms.mode === 'test' && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Identifiants de test enregistrés. Les SMS et WhatsApp via Twilio ne peuvent pas être activés avec ces identifiants. Pour passer en Live, remplacez le SID et le jeton par ceux du compte Live.</p>}
         <label className="flex gap-2 items-center"><input type="checkbox" checked={settings.sms.enabled} onChange={e => change('sms', 'enabled', e.target.checked)} />Activer les SMS et la vérification des numéros</label>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm">Account SID<input className={input} autoComplete="off" placeholder="AC…" value={settings.sms.sid || ''} onChange={e => change('sms', 'sid', e.target.value)} /></label>
@@ -57,13 +57,26 @@ export default function CommunicationSettingsPanel() {
         </div>
       </fieldset>
       <fieldset disabled={busy} className="border-t border-surface-100 pt-5 space-y-4">
-        <legend className="font-bold text-surface-900">WhatsApp · Twilio</legend>
+        <legend className="font-bold text-surface-900">WhatsApp Business</legend>
+        <label className="block text-sm">Fournisseur WhatsApp<select className={input} value={settings.whatsapp.provider || 'twilio'} onChange={e => change('whatsapp', 'provider', e.target.value)}><option value="meta">Meta Cloud API</option><option value="twilio">Twilio</option></select></label>
         <label className="flex gap-2 items-center"><input type="checkbox" checked={settings.whatsapp.enabled} onChange={e => change('whatsapp', 'enabled', e.target.checked)} />Activer les notifications WhatsApp</label>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-sm">Expéditeur WhatsApp autorisé<input type="tel" className={input} placeholder="+243…" value={settings.whatsapp.from || ''} onChange={e => change('whatsapp', 'from', e.target.value)} /></label>
-          <label className="text-sm">Content SID du modèle approuvé<input className={input} placeholder="HX…" value={settings.whatsapp.contentSid || ''} onChange={e => change('whatsapp', 'contentSid', e.target.value)} /></label>
-        </div>
-        <p className="text-xs text-surface-500">Utilise le même compte Twilio. Créez un modèle approuvé avec les variables 1 = titre et 2 = message. Chaque utilisateur choisit de recevoir ces notifications sur son numéro vérifié.</p>
+        {settings.whatsapp.provider === 'meta' ? <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-sm">Phone Number ID Meta<input className={input} inputMode="numeric" value={settings.whatsapp.phoneNumberId || ''} onChange={e => change('whatsapp', 'phoneNumberId', e.target.value)} /></label>
+            <label className="text-sm">Jeton d’accès Meta<input type="password" autoComplete="new-password" className={input} value={settings.whatsapp.accessToken || ''} placeholder={settings.whatsapp.hasSecret ? 'Déjà enregistré · laisser vide pour conserver' : 'Jeton privé Meta'} onChange={e => change('whatsapp', 'accessToken', e.target.value)} /></label>
+            <label className="text-sm">Nom du modèle approuvé<input className={input} placeholder="notification_courrier" value={settings.whatsapp.templateName || ''} onChange={e => change('whatsapp', 'templateName', e.target.value)} /></label>
+            <label className="text-sm">Code langue du modèle<input className={input} placeholder="fr" value={settings.whatsapp.language || 'fr'} onChange={e => change('whatsapp', 'language', e.target.value)} /></label>
+            <label className="text-sm">Version de l’API Graph<input className={input} placeholder="v22.0" value={settings.whatsapp.apiVersion || 'v22.0'} onChange={e => change('whatsapp', 'apiVersion', e.target.value)} /></label>
+          </div>
+          <p className="text-xs text-surface-500">Connexion directe à Meta, indépendante du compte SMS. Le modèle approuvé doit comporter deux variables dans le corps : 1 = titre, 2 = message. Le Phone Number ID est l’identifiant technique du numéro, pas le numéro de téléphone.</p>
+        </> : <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-sm">Expéditeur WhatsApp autorisé<input type="tel" className={input} placeholder="+243…" value={settings.whatsapp.from || ''} onChange={e => change('whatsapp', 'from', e.target.value)} /></label>
+            <label className="text-sm">Content SID du modèle approuvé<input className={input} placeholder="HX…" value={settings.whatsapp.contentSid || ''} onChange={e => change('whatsapp', 'contentSid', e.target.value)} /></label>
+          </div>
+          <p className="text-xs text-surface-500">Utilise le même compte Twilio. Le modèle approuvé doit comporter les variables 1 = titre et 2 = message.</p>
+        </>}
+        <p className="text-xs text-surface-500">Chaque utilisateur active WhatsApp dans son profil et vérifie son numéro par SMS. Configurez les SMS Twilio pour permettre cette vérification.</p>
       </fieldset>
       <button disabled={busy} className="rounded-xl bg-primary-600 px-5 py-3 font-semibold text-white hover:bg-primary-700 disabled:opacity-50">{busy ? 'Enregistrement…' : 'Enregistrer la messagerie'}</button>
     </form>}
