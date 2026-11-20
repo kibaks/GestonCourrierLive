@@ -8,7 +8,7 @@ export interface Profile extends Utilisateur {
   emailVerified: boolean; twoFactorEnabled: boolean; notificationPreferences: Record<string, Channels>;
 }
 export interface Communications {
-  mail: { enabled: boolean; host: string; port: number; encryption: string; username: string; password: string; fromAddress: string; fromName: string; hasSecret?: boolean };
+  mail: { provider?: 'smtp' | 'gmail'; googleClientId?: string; googleClientSecret?: string; googleRefreshToken?: string; hasGoogleClientSecret?: boolean; hasGoogleRefreshToken?: boolean; enabled: boolean; host: string; port: number; encryption: string; username: string; password: string; fromAddress: string; fromName: string; hasSecret?: boolean };
   sms: { mode: 'test' | 'live'; enabled: boolean; sid: string; token: string; from: string; hasSecret?: boolean };
   whatsapp: { enabled: boolean; provider: 'twilio' | 'meta'; from: string; contentSid: string; accessToken: string; phoneNumberId: string; apiVersion: string; templateName: string; language: string; hasSecret?: boolean };
 }

@@ -34,16 +34,24 @@ export default function CommunicationSettingsPanel() {
     {!settings ? <p className="mt-5">{error ? 'Impossible de charger les réglages.' : 'Chargement des réglages…'}</p> : <form onSubmit={save} className="mt-6 space-y-6">
       <fieldset disabled={busy} className="space-y-4">
         <legend className="font-bold text-surface-900">E-mail professionnel</legend>
+        <label className="block text-sm">Mode d’envoi<select className={input} value={settings.mail.provider || 'smtp'} onChange={e => change('mail', 'provider', e.target.value)}><option value="smtp">Serveur SMTP</option><option value="gmail">Google Gmail · connexion HTTPS</option></select></label>
         <label className="flex gap-2 items-center"><input type="checkbox" checked={settings.mail.enabled} onChange={e => change('mail', 'enabled', e.target.checked)} />Activer l’envoi d’e-mails</label>
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-sm">Serveur SMTP<input required className={input} value={settings.mail.host} onChange={e => change('mail', 'host', e.target.value)} /></label>
+          {settings.mail.provider !== 'gmail' && <><label className="text-sm">Serveur SMTP<input required className={input} value={settings.mail.host} onChange={e => change('mail', 'host', e.target.value)} /></label>
           <label className="text-sm">Connexion chiffrée<select className={input} value={settings.mail.port} onChange={e => { const port = Number(e.target.value); setSettings({ ...settings, mail: { ...settings.mail, port, encryption: port === 465 ? 'ssl' : 'tls' } }); }}><option value={465}>Port 465 · SSL/TLS</option><option value={587}>Port 587 · STARTTLS</option></select></label>
-          <label className="text-sm">Identifiant<input required autoComplete="off" className={input} value={settings.mail.username} onChange={e => change('mail', 'username', e.target.value)} /></label>
-          <label className="text-sm">Mot de passe du compte mail<input type="password" autoComplete="new-password" className={input} value={settings.mail.password} placeholder={settings.mail.hasSecret ? 'Déjà enregistré · laisser vide pour conserver' : 'À renseigner pour activer'} onChange={e => change('mail', 'password', e.target.value)} /></label>
+          </>}
+          <label className="text-sm">{settings.mail.provider === 'gmail' ? 'Adresse du compte Google autorisé' : 'Identifiant'}<input required autoComplete="off" className={input} value={settings.mail.username} onChange={e => change('mail', 'username', e.target.value)} /></label>
+          {settings.mail.provider !== 'gmail' && <label className="text-sm">Mot de passe du compte mail<input type="password" autoComplete="new-password" className={input} value={settings.mail.password} placeholder={settings.mail.hasSecret ? 'Déjà enregistré · laisser vide pour conserver' : 'À renseigner pour activer'} onChange={e => change('mail', 'password', e.target.value)} /></label>}
+          {settings.mail.provider === 'gmail' && <>
+            <label className="text-sm">ID client Google OAuth<input className={input} value={settings.mail.googleClientId || ''} onChange={e => change('mail', 'googleClientId', e.target.value)} /></label>
+            <label className="text-sm">Secret du client Google<input type="password" autoComplete="new-password" className={input} value={settings.mail.googleClientSecret || ''} placeholder={settings.mail.hasGoogleClientSecret ? 'Déjà enregistré · laisser vide pour conserver' : 'À renseigner'} onChange={e => change('mail', 'googleClientSecret', e.target.value)} /></label>
+            <label className="text-sm sm:col-span-2">Jeton de renouvellement Google<input type="password" autoComplete="new-password" className={input} value={settings.mail.googleRefreshToken || ''} placeholder={settings.mail.hasGoogleRefreshToken ? 'Déjà enregistré · laisser vide pour conserver' : 'Fourni après autorisation Gmail'} onChange={e => change('mail', 'googleRefreshToken', e.target.value)} /></label>
+            <p className="text-xs text-surface-500 sm:col-span-2">Le compte doit autoriser l’envoi d’e-mails via Gmail. La connexion Google à l’application ne donne pas ce droit. Les secrets sont chiffrés et ne sont pas réaffichés. Gardez l’envoi désactivé jusqu’à la fin de l’autorisation.</p>
+          </>}
           <label className="text-sm">Adresse d’expédition<input required type="email" className={input} value={settings.mail.fromAddress} onChange={e => change('mail', 'fromAddress', e.target.value)} /></label>
           <label className="text-sm">Nom de l’expéditeur<input className={input} value={settings.mail.fromName} onChange={e => change('mail', 'fromName', e.target.value)} /></label>
         </div>
-        <p className="text-xs text-surface-500">Réception du compte : mail.armp-rdc.cd · IMAP 993 / POP3 995. Ces ports sont destinés à votre logiciel de messagerie. L’application utilise SMTP pour envoyer les notifications.</p>
+        {settings.mail.provider !== 'gmail' && <p className="text-xs text-surface-500">Réception du compte : mail.armp-rdc.cd · IMAP 993 / POP3 995. Ces ports sont destinés à votre logiciel de messagerie. L’application utilise SMTP pour envoyer les notifications.</p>}
       </fieldset>
       <fieldset disabled={busy} className="border-t border-surface-100 pt-5 space-y-4">
         <legend className="font-bold text-surface-900">SMS · Twilio</legend>
