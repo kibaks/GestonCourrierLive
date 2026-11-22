@@ -185,8 +185,8 @@ const EnregistrerCourrierListe: React.FC = () => {
 
   useEffect(() => {
     const sender=registrationSender(user,entities,entiteTypeService.getActiveTypesForEntry());
-    setRows(previous=>previous.map(row=>status[row.id]==='saved'?row:{...row,expediteur:sender.name,entiteEmetteur:row.type===TypeCourrier.INTERNE?sender.cascade:{}}));
-  }, [user?.id,user?.nom,user?.entiteId,user?.direction,entities,rows.map(row=>row.type).join('|')]);
+    setRows(previous=>previous.map(row=>status[row.id]==='saved'||row.sens===SensCourrier.ENTRANT?row:{...row,expediteur:sender.name,entiteEmetteur:row.type===TypeCourrier.INTERNE?sender.cascade:{}}));
+  }, [user?.id,user?.nom,user?.entiteId,user?.direction,entities,rows.map(row=>row.type+row.sens).join('|')]);
 
   // Sens/type actifs (contrôlent les colonnes dynamiques)
   const [activeSens, setActiveSens] = useState<SensCourrier>(initSens);
@@ -297,7 +297,7 @@ const EnregistrerCourrierListe: React.FC = () => {
   // Extraire les champs dynamiques sauf priorité
   useEffect(() => {
     if (!formConfig) return;
-    const sections = registrationSections(formConfig[activeSens]?.[activeType] ?? []);
+    const sections = registrationSections(formConfig[activeSens]?.[activeType] ?? [], activeSens, activeType);
     const seen = new Set<string>();
     const cols: ExtraFieldConfig[] = [];
     sections.forEach(section => {
@@ -331,8 +331,8 @@ const EnregistrerCourrierListe: React.FC = () => {
     const nextType = user && !canCreateExterne ? TypeCourrier.INTERNE : requestedType;
     setActiveSens(nextSens);setActiveType(nextType);
     const sender=registrationSender(user,entities,filterLevels);
-    const allowedFields=new Set(registrationSections(formConfig?.[nextSens]?.[nextType] || []).flatMap(section=>section.columns.flatMap(column=>column.fields.map(field=>field.name))));
-    setRows(previous=>previous.map(row=>status[row.id]==='saved'||(row.sens===nextSens&&row.type===nextType)?row:{...batchContextRow(row,{sens:nextSens,type:nextType}),expediteur:sender.name,destinataire:'',entiteEmetteur:nextType===TypeCourrier.INTERNE?sender.cascade:{},entiteDestinataire:{},extraFields:Object.fromEntries(Object.entries(row.extraFields).filter(([name])=>allowedFields.has(name)))}));
+    const allowedFields=new Set(registrationSections(formConfig?.[nextSens]?.[nextType] || [], nextSens, nextType).flatMap(section=>section.columns.flatMap(column=>column.fields.map(field=>field.name))));
+    setRows(previous=>previous.map(row=>status[row.id]==='saved'||(row.sens===nextSens&&row.type===nextType)?row:{...batchContextRow(row,{sens:nextSens,type:nextType}),expediteur:nextSens===SensCourrier.ENTRANT?'':sender.name,destinataire:'',entiteEmetteur:nextSens===SensCourrier.SORTANT&&nextType===TypeCourrier.INTERNE?sender.cascade:{},entiteDestinataire:{},extraFields:Object.fromEntries(Object.entries(row.extraFields).filter(([name])=>allowedFields.has(name)))}));
     setErrors(previous=>Object.fromEntries(Object.entries(previous).filter(([id])=>status[id]==='saved')));
     setStatus(previous=>Object.fromEntries(Object.entries(previous).map(([id,state])=>[id,state==='saved'?state:'idle'])));
     setBatchNotice('');
@@ -851,7 +851,7 @@ const EnregistrerCourrierListe: React.FC = () => {
       if(r.type===TypeCourrier.INTERNE){
         const selected=filterLevels.map(level=>entities.find(entity=>entity.id===r.entiteDestinataire[level.code])).filter((entity):entity is EntiteOrganisationnelle=>!!entity);
         const recipient=selected[selected.length-1] || entities.find(entity=>entity.nom===r.destinataire.trim());
-        const issue=internalRegistrationIssue(registrationSender(user,entities,filterLevels).entity,recipient);
+        const issue=internalRegistrationIssue(r.sens===SensCourrier.ENTRANT?entities.find(entity=>entity.nom===r.expediteur.trim()):registrationSender(user,entities,filterLevels).entity,recipient);
         if(issue)e.destinataire=issue;
       }
       newErr[r.id] = e;
@@ -1353,8 +1353,8 @@ const EnregistrerCourrierListe: React.FC = () => {
           </td>
           {/* Colonne 2: Expediteur/Destinataire */}
           <td className="px-2 py-1.5">
-            <div className="mb-2 rounded-lg bg-surface-50 p-2"><span className="block text-xs text-slate-500">Expéditeur automatique</span><strong className="block break-words text-sm">{row.expediteur || (referenceLoading ? 'Chargement de l’entité…' : 'Entité non renseignée')}</strong><span className="text-xs text-slate-500">Non modifiable</span></div><div className="batch-letter-reference"><span>N° de lettre</span><strong>{letterNumberLoading ? 'Chargement…' : letterNumber || 'À définir dans le registre'}</strong></div>
-            {row.type === TypeCourrier.INTERNE && <div className="mt-2 text-sm"><span className="block text-xs text-slate-500">Destinataire</span><span className="block break-words">{row.destinataire || 'À compléter dans les détails'}</span>{!row.destinataire&&<button type="button" disabled={saving||st==='saved'} className="mt-1 text-blue-700 underline" onClick={()=>setExpanded(previous=>({...previous,[row.id]:true}))}>Renseigner dans les détails</button>}</div>}
+            <div className="mb-2 rounded-lg bg-surface-50 p-2"><span className="block text-xs text-slate-500">{row.sens===SensCourrier.ENTRANT?'Destinataire automatique':'Expéditeur automatique'}</span><strong className="block break-words text-sm">{(row.sens===SensCourrier.ENTRANT?row.destinataire:row.expediteur) || (referenceLoading ? 'Chargement de l’entité…' : 'Entité non renseignée')}</strong><span className="text-xs text-slate-500">Non modifiable</span></div><div className="batch-letter-reference"><span>N° de lettre</span><strong>{letterNumberLoading ? 'Chargement…' : letterNumber || 'À définir dans le registre'}</strong></div>
+            {row.type === TypeCourrier.INTERNE && <div className="mt-2 text-sm"><span className="block text-xs text-slate-500">{row.sens===SensCourrier.ENTRANT?'Expéditeur':'Destinataire'}</span><span className="block break-words">{(row.sens===SensCourrier.ENTRANT?row.expediteur:row.destinataire) || 'À compléter dans les détails'}</span>{!(row.sens===SensCourrier.ENTRANT?row.expediteur:row.destinataire)&&<button type="button" disabled={saving||st==='saved'} className="mt-1 text-blue-700 underline" onClick={()=>setExpanded(previous=>({...previous,[row.id]:true}))}>Renseigner dans les détails</button>}</div>}
             {extraColumns.filter(field => (field.name === 'destinataire' || field.name === 'expediteur') && row.type !== TypeCourrier.INTERNE).map(participant => {
               const name = participant.name as 'expediteur' | 'destinataire';
               const field = configuredField(name);
@@ -1442,7 +1442,7 @@ const EnregistrerCourrierListe: React.FC = () => {
                 </div>
                 <div className="batch-detail-body">
                   <div className="batch-detail-reference"><label>N° de lettre administratif<input readOnly aria-label={`Numéro de lettre de la ligne ${rows.findIndex(item=>item.id===row.id)+1}`} value={letterNumber} placeholder={letterNumberLoading ? 'Chargement du numéro…' : 'Sélectionner le registre du lot'} /></label><span>Prérempli selon les paramètres · confirmé à l’enregistrement</span></div>
-                  {(registrationSections(formConfig?.[activeSens]?.[activeType] || [])).map(section => <section key={section.id} className="border-t border-surface-200 pt-4 mt-4" style={section.style}>
+                  {(registrationSections(formConfig?.[activeSens]?.[activeType] || [], activeSens, activeType)).map(section => <section key={section.id} className="border-t border-surface-200 pt-4 mt-4" style={section.style}>
                     {section.label && <h4 className="text-sm font-bold text-slate-800 mb-3">{section.label}</h4>}
                     {section.placeholder && <p className="text-sm text-slate-500 mb-3">{section.placeholder}</p>}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">

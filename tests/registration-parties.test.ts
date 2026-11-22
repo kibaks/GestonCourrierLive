@@ -59,3 +59,21 @@ test('recipient lock follows the actual DG ancestor rather than another central 
  const other={id:'other-dg',nom:'Autre DG',type:'direction_generale',actif:true} as EntiteOrganisationnelle;
  assert.equal(lockedRegistrationRecipient('INTERNE','SORTANT',[other,...entities],entities[2])?.id,'dg');
 });
+
+
+test('incoming layouts require the actual sender and remove the editable recipient',()=>{
+ const sections=[{id:'s',type:'section',label:'Infos',columns:[{id:'c',width:6,fields:[{id:'d',name:'destinataire',label:'Destinataire',type:'text'},{id:'o',name:'objet',label:'Objet',type:'text'}]}]}] as FormStructure;
+ const original=JSON.stringify(sections);
+ for(const type of ['INTERNE','EXTERNE']){
+  const fields=registrationSections(sections,'ENTRANT',type)[0].columns[0].fields;
+  assert.deepEqual(fields.map(f=>f.name),['expediteur','objet']);
+  assert.equal(fields[0].required,true);
+  assert.equal(fields[0].label,type==='INTERNE'?'Entité interne expéditrice':'Organisation expéditrice');
+ }
+ assert.equal(JSON.stringify(sections),original);
+});
+test('incoming sender aliases preserve their configured position and are not duplicated',()=>{
+ const sections=[{id:'s',type:'section',label:'Infos',columns:[{id:'c',width:12,fields:[{id:'d',name:'destinataire',label:'Destinataire'},{id:'o',name:'objet',label:'Objet'},{id:'e',name:'emetteur',label:'Émetteur'}]}]}] as FormStructure;
+ assert.deepEqual(registrationSections(sections,'ENTRANT','INTERNE')[0].columns[0].fields.map(f=>f.name),['objet','expediteur']);
+ assert.equal(lockedRegistrationRecipient('INTERNE','ENTRANT',entities,entities[0])?.id,'dg');
+});

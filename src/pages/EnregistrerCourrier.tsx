@@ -652,7 +652,7 @@ const EnregistrerCourrier: React.FC = () => {
   };
 
   // Obtenir tous les champs à afficher — uniquement les champs dynamiques configurés
-  const getAllFields = () => registrationSections(formConfig?.[formData.sens]?.[formData.type] || []);
+  const getAllFields = () => registrationSections(formConfig?.[formData.sens]?.[formData.type] || [], formData.sens, formData.type);
   const participantConfigured = (name: string) => getAllFields().some(section => section.columns?.some(column => column.fields?.some(field => field.name === name)));
 
   // S'assurer que la date de réception est toujours initialisée
@@ -1352,11 +1352,17 @@ const EnregistrerCourrier: React.FC = () => {
   
   useEffect(() => {
     if (!user || isEditMode) return;
+    if (formData.sens === SensCourrier.ENTRANT) {
+      setFormData(previous => ({...previous, expediteur:''}));
+      setEntiteEmetteur({});
+      setAreEntitiesLocked(false);
+      return;
+    }
     const sender = registrationSender(user, entities, entiteTypeService.getActiveTypesForEntry());
     setFormData(previous=>previous.expediteur===sender.name?previous:{...previous,expediteur:sender.name});
     setEntiteEmetteur(formData.type === TypeCourrier.INTERNE ? sender.cascade : {});
     setAreEntitiesLocked(false);
-  }, [user?.id, user?.nom, user?.entiteId, user?.direction, entities, formData.type, formData.expediteur, isEditMode]);
+  }, [user?.id, user?.nom, user?.entiteId, user?.direction, entities, formData.type, formData.sens, isEditMode]);
 
   const fixedRecipient=lockedRegistrationRecipient(formData.type,formData.sens,entities,registrationSender(user,entities,filterLevels).entity);
   useEffect(() => {
@@ -1825,7 +1831,7 @@ const EnregistrerCourrier: React.FC = () => {
                 </div>
                 
                 <div className="courrier-configured-form space-y-6">
-                    <div className="rounded-xl border border-surface-200 bg-surface-50 p-4"><label className="block text-sm font-semibold" htmlFor="registration-sender">Expéditeur · entité de rattachement</label><input id="registration-sender" value={formData.expediteur} readOnly className="mt-2 w-full rounded-lg border bg-surface-100 px-3 py-2"/><p className="mt-2 text-xs text-slate-600">Entité associée au compte connecté. Renseignée automatiquement et non modifiable.</p></div>
+                    {formData.sens === SensCourrier.ENTRANT ? <div className="rounded-xl border border-surface-200 bg-surface-50 p-4"><label className="block text-sm font-semibold" htmlFor="registration-recipient">Destinataire</label><input id="registration-recipient" value={formData.destinataire} readOnly className="mt-2 w-full rounded-lg border bg-surface-100 px-3 py-2"/><p className="mt-2 text-xs text-slate-600">Destinataire fixé à la Direction Générale. Renseignez l’expéditeur du courrier ci-dessous.</p></div> : <div className="rounded-xl border border-surface-200 bg-surface-50 p-4"><label className="block text-sm font-semibold" htmlFor="registration-sender">Expéditeur · entité de rattachement</label><input id="registration-sender" value={formData.expediteur} readOnly className="mt-2 w-full rounded-lg border bg-surface-100 px-3 py-2"/><p className="mt-2 text-xs text-slate-600">Entité associée au compte connecté. Renseignée automatiquement et non modifiable.</p></div>}
                     {getAllFields().map((section: any) => (
                       <div key={section.id} className="space-y-4" style={section.style}>
                         {/* Afficher le titre de section si existant et différent de 'Infos' */}

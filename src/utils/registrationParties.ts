@@ -9,12 +9,24 @@ export function registrationSender(user: Pick<Utilisateur,'nom'|'entiteId'|'dire
   return {name:entity?.nom || '',entity,cascade:entity?cascadeForEntity(entity.id,levels,entities):{}};
 }
 
-/** The account supplies the sender; the published layout supplies the other fields. */
-export function registrationSections(sections: FormStructure): FormStructure {
+/** The direction of the letter determines which party is entered in the published layout. */
+export function registrationSections(sections: FormStructure, sens = 'SORTANT', type = 'EXTERNE'): FormStructure {
   if (!sections.length) return sections;
   const norm=(value:string)=>value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const sender=(field:ExtraFieldConfig)=>/expediteur|emetteur|sender/.test(norm(field.name+' '+field.label));
   const recipient=(field:ExtraFieldConfig)=>/destinataire|recipient|recepteur/.test(norm(field.name+' '+field.label));
+  if (sens === 'ENTRANT') {
+    const configuredSender = sections.some(section => section.columns.some(column => column.fields.some(sender)));
+    let hasSender = false;
+    const result = sections.map(section => ({...section, columns: section.columns.map(column => ({...column, fields: column.fields.flatMap(field => {
+      if (!sender(field) && !recipient(field)) return [field];
+      if (hasSender || (configuredSender && !sender(field))) return [];
+      hasSender = true;
+      return [{...field, name:'expediteur', label:type === 'INTERNE' ? 'Entité interne expéditrice' : 'Organisation expéditrice', type:'text' as const, required:true, placeholder:type === 'INTERNE' ? 'Choisissez l’entité interne expéditrice' : 'Nom de l’organisation externe expéditrice'}];
+    })}))}));
+    if (!hasSender && result[0].columns.length) result[0].columns[0].fields.unshift({id:'registration-sender',name:'expediteur',label:type === 'INTERNE' ? 'Entité interne expéditrice' : 'Organisation expéditrice',type:'text',required:true});
+    return result;
+  }
   let hasRecipient=false;
   const result=sections.map(section=>({...section,columns:section.columns.map(column=>({...column,fields:column.fields.filter(field=>!sender(field)).flatMap(field=>{
     if(!recipient(field))return [field];
@@ -44,7 +56,7 @@ export function externalIncomingRecipient(type:string,sens:string,entities:Entit
 
 /** Direction-originating letters are always addressed to their own DG ancestor. */
 export function lockedRegistrationRecipient(type:string,sens:string,entities:EntiteOrganisationnelle[],accountEntity?:EntiteOrganisationnelle):EntiteOrganisationnelle|undefined {
-  const incoming=externalIncomingRecipient(type,sens,entities,accountEntity);
+  const incoming=sens==='ENTRANT' ? externalIncomingRecipient('EXTERNE',sens,entities,accountEntity) : undefined;
   if(incoming)return incoming;
   if(type!=='INTERNE'||!accountEntity||accountEntity.actif===false)return;
   let current:EntiteOrganisationnelle|undefined=accountEntity;
